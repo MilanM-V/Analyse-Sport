@@ -523,6 +523,14 @@ class NhlBot(BaseSportBot):
         session_date = self.get_nhl_session_date()
         log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
         log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+        
+        # --- EXPORT DASHBOARD ---
+        try:
+            import dashboard.exporter as dashboard_exporter
+            dashboard_exporter.export_data()
+            dashboard_exporter.git_commit_and_push()
+        except Exception as e:
+            logger.error(f"Erreur lors de l'export du dashboard : {e}")
 
     # Plafonds exposés pour les tests (délègue au module kelly)
     from nhl.core.kelly import CATEGORY_CAPS
@@ -538,8 +546,13 @@ class NhlBot(BaseSportBot):
             from nhl.core.updater import update_pending_picks
             logger.info("🔄 Auto-résolution des résultats dans la DB avant le rapport final...")
             update_pending_picks()
+            
+            # --- EXPORT DASHBOARD ---
+            import dashboard.exporter as dashboard_exporter
+            dashboard_exporter.export_data()
+            dashboard_exporter.git_commit_and_push()
         except Exception as e:
-            logger.error(f"Erreur auto-résolution : {e}")
+            logger.error(f"Erreur auto-résolution ou export : {e}")
 
         if self.matchs_traites:
 
