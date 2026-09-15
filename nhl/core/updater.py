@@ -10,8 +10,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from  core.database import get_connection
 from nhl.core.services import safe_get
+from shared.portfolio import Portfolio
 
 logger = logging.getLogger("NHL.Updater")
+portfolio = Portfolio()
 
 # Import centralisé depuis la source unique
 from nhl.config.constants import ALL_ABBRS
@@ -133,6 +135,7 @@ def update_pending_picks():
                         if match_player_name(joueur, api_name):
                             val = 1 if stats['goals'] > 0 else 0
                             c.execute("UPDATE picks SET but = ? WHERE id = ?", (val, pick_id))
+                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
                             resolved_count += 1
                             break
 
@@ -144,6 +147,7 @@ def update_pending_picks():
                         if match_player_name(joueur, api_name):
                             val = 1 if stats['assists'] > 0 else 0
                             c.execute("UPDATE picks_assists SET assist = ? WHERE id = ?", (val, pick_id))
+                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
                             resolved_count += 1
                             break
 
@@ -155,6 +159,7 @@ def update_pending_picks():
                         if match_player_name(joueur, api_name):
                             val = 1 if stats['points'] > 0 else 0
                             c.execute("UPDATE picks_points SET point = ? WHERE id = ?", (val, pick_id))
+                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
                             resolved_count += 1
                             break
 

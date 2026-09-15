@@ -25,15 +25,15 @@ def load_ml_models() -> Dict[str, Any]:
     try:
         models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
         
-        path_but = os.path.join(models_dir, "ml_model_but.pkl")
+        path_but = os.path.join(models_dir, "ensemble_but.joblib")
         if os.path.exists(path_but):
             models['but'] = joblib.load(path_but)
-            logger.info("Modèle ML Buteur (XGBoost) chargé.")
+            logger.info("Modèle ML Buteur (Ensemble Multi-Boosting) chargé.")
             
-        path_ast = os.path.join(models_dir, "ml_model_ast.pkl")
+        path_ast = os.path.join(models_dir, "ensemble_ast.joblib")
         if os.path.exists(path_ast):
             models['ast'] = joblib.load(path_ast)
-            logger.info("Modèle ML Passeur (Logistic Regression) chargé.")
+            logger.info("Modèle ML Passeur (Ensemble Multi-Boosting) chargé.")
             
     except Exception as e:
         logger.error(f"Erreur chargement modèles ML : {e}")
@@ -141,6 +141,9 @@ def prepare_features_for_player(p_form: Dict[str, Any], v5_p: Dict[str, Any], ad
         'is_top6': 1.0 if (atoi_l10 >= 17.0 or pp1) else 0.0,
         'linemate_synergy': (season_g + season_a) * (1.0 if pp1 else 0.0),
         'team_scoring_env': ga_g * hdca_g,
+        # === NOUVELLES FEATURES CONTEXTUELLES (P2) ===
+        'hot_streak_ixg': float(consec_goals) * 0.15, # Proxy temps-réel (difficile d'avoir le L5 pur sans DB complète en RAM)
+        'split_l10_g': (season_g / 82.0 * 10.0) if season_g else 0.0, # Proxy temporaire
     }
     
     # Construire le vecteur exact dans l'ordre du modèle

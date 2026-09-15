@@ -123,10 +123,49 @@ class NHLEnsembleClassifier(BaseEstimator, ClassifierMixin):
             calibrated.fit(X, y)
             self.calibrated_models_[name] = calibrated
 
-        # 3. Poids égaux pour aller plus vite (au lieu du blending OOF)
+        # 3. Optimisation des poids de l'Ensemble par Blending OOF (Out-Of-Fold)
+        oof_preds = {name: np.zeros(n_samples) for name in base_models.keys()}
+        valid_indices = []
+        for train_idx, val_idx in tscv.split(X):
+            valid_indices.extend(val_idx)
+            X_train, y_train = X[train_idx], y[train_idx]
+            X_val = X[val_idx]
+            for name, model in base_models.items():
+                import copy
+                m_clone = copy.deepcopy(model)
+                cal = CalibratedClassifierCV(m_clone, method='sigmoid', cv=2, n_jobs=None)
+                cal.fit(X_train, y_train)
+                oof_preds[name][val_idx] = cal.predict_proba(X_val)[:, 1]
+
+        valid_indices = np.array(valid_indices)
         n_models = len(base_models)
-        self.weights_ = np.array([1.0 / n_models] * n_models)
-        self.best_model_name_ = 'CatBoost' # Default fallback
+        
+        if len(valid_indices) > 0:
+            y_valid = y[valid_indices]
+            
+            def objective(weights):
+                combined = np.zeros(len(valid_indices))
+                for i, name in enumerate(base_models.keys()):
+                    combined += weights[i] * oof_preds[name][valid_indices]
+                return brier_score_loss(y_valid, combined)
+                
+            init_w = np.ones(n_models) / n_models
+            bounds = tuple((0.0, 1.0) for _ in range(n_models))
+            cons = ({'type': 'eq', 'fun': lambda w: 1.0 - np.sum(w)})
+            
+            res = minimize(objective, init_w, method='SLSQP', bounds=bounds, constraints=cons)
+            self.weights_ = res.x
+            
+            # Champion fallback
+            best_brier = float('inf')
+            for name in base_models.keys():
+                score = brier_score_loss(y_valid, oof_preds[name][valid_indices])
+                if score < best_brier:
+                    best_brier = score
+                    self.best_model_name_ = name
+        else:
+            self.weights_ = np.ones(n_models) / n_models
+            self.best_model_name_ = list(base_models.keys())[0]
 
         return self
 

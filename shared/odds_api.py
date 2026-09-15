@@ -149,8 +149,8 @@ class OddsAPIClient:
 
                                         price = outcome.get('price', 0)
                                         
-                                        # Seulement l'Over
-                                        if outcome.get('name', '').lower() == 'over':
+                                        # Seulement l'Over à 0.5
+                                        if outcome.get('name', '').lower() == 'over' and outcome.get('point', 0.5) == 0.5:
                                             # Faire correspondre le joueur
                                             for p_name in players_map.keys():
                                                 # Logique de matching flexible

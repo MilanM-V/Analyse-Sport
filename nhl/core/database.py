@@ -174,7 +174,7 @@ def init_db():
     conn.close()
     ensure_schema()
 
-def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Connection] = None) -> None:
+def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Connection] = None) -> Optional[int]:
     """
     Inserts a selected pick into the specified table.
 
@@ -193,10 +193,13 @@ def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Co
 
     sql = f'INSERT INTO {table} ({cols}) VALUES ({placeholders})'
     c.execute(sql, list(pick_data.values()))
+    pick_id = c.lastrowid
 
     if auto_close:
         conn.commit()
         conn.close()
+        
+    return pick_id
 
 def insert_player(player_data: Dict[str, Any], conn: Optional[sqlite3.Connection] = None) -> None:
     """
