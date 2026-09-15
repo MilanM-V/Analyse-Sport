@@ -108,8 +108,14 @@ def git_commit_and_push():
         branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True)
         branch = branch_proc.stdout.strip()
         
-        logger.info(f"Pushing to origin {branch}...")
-        subprocess.run(["git", "push", "origin", branch], cwd=_REPO_ROOT, check=True)
+        # Determine remote name (default to origin, fallback to Analyse-Nhl if it exists)
+        remote = "origin"
+        remotes_proc = subprocess.run(["git", "remote"], cwd=_REPO_ROOT, capture_output=True, text=True)
+        if "Analyse-Nhl" in remotes_proc.stdout.split():
+            remote = "Analyse-Nhl"
+            
+        logger.info(f"Pushing to {remote} {branch}...")
+        subprocess.run(["git", "push", remote, branch], cwd=_REPO_ROOT, check=True)
         logger.info("Successfully pushed to GitHub.")
     except subprocess.CalledProcessError as e:
         logger.error(f"Git command failed: {e.stderr if e.stderr else e}")
