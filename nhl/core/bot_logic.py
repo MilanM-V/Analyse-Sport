@@ -466,7 +466,8 @@ class NhlBot(BaseSportBot):
                     p["Proba"] = proba_but
                     
                     # Filtre strict Buteur (Phase 4)
-                    if proba_but >= 0.15:
+                    ev_but = (proba_but * cote - 1.0) if cote else 0.0
+                    if proba_but >= 0.60 or ev_but >= 0.30:
                         for ep in all_evaluated_players:
                             if ep["Joueur"] == p["Joueur"]: ep["Score_But"] = proba_but
 
@@ -488,16 +489,16 @@ class NhlBot(BaseSportBot):
                         player_name=p["Joueur"], priors_data=ds.priors
                     )
                     X_pred = X_player
-                    if ml_models['ast'].get('algo') == 'logreg' and 'scaler' in ml_models['ast']:
-                        X_pred = ml_models['ast']['scaler'].transform(X_pred)
-                        
                     proba_ast = float(ml_models['ast']['model'].predict_proba(X_pred)[0, 1])
                     p["Proba"] = proba_ast
 
-                    for ep in all_evaluated_players:
-                        if ep["Joueur"] == p["Joueur"]: ep["Score_Assist"] = proba_ast
+                    # Filtre strict Passeur (Phase 4)
+                    ev_ast = (proba_ast * cote - 1.0) if cote else 0.0
+                    if proba_ast >= 0.60 or ev_ast >= 0.30:
+                        for ep in all_evaluated_players:
+                            if ep["Joueur"] == p["Joueur"]: ep["Score_Assist"] = proba_ast
 
-                    final_picks_ast.append(p)
+                        final_picks_ast.append(p)
 
         final_picks_but = [p for p in final_picks_but if is_cote_valid(p, cfg.thresholds.buteurs.cote_min)]
         final_picks_ast = [p for p in final_picks_ast if is_cote_valid(p, cfg.thresholds.passeurs.cote_min)]
@@ -523,6 +524,14 @@ class NhlBot(BaseSportBot):
         session_date = self.get_nhl_session_date()
         log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
         log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+        
+        # --- EXPORT DASHBOARD ---
+        try:
+            import dashboard.exporter as dashboard_exporter
+            dashboard_exporter.export_data()
+            dashboard_exporter.git_commit_and_push()
+        except Exception as e:
+            logger.error(f"Erreur lors de l'export du dashboard : {e}")
 
     # Plafonds exposés pour les tests (délègue au module kelly)
     from nhl.core.kelly import CATEGORY_CAPS
@@ -538,8 +547,13 @@ class NhlBot(BaseSportBot):
             from nhl.core.updater import update_pending_picks
             logger.info("🔄 Auto-résolution des résultats dans la DB avant le rapport final...")
             update_pending_picks()
+            
+            # --- EXPORT DASHBOARD ---
+            import dashboard.exporter as dashboard_exporter
+            dashboard_exporter.export_data()
+            dashboard_exporter.git_commit_and_push()
         except Exception as e:
-            logger.error(f"Erreur auto-résolution : {e}")
+            logger.error(f"Erreur auto-résolution ou export : {e}")
 
         if self.matchs_traites:
 

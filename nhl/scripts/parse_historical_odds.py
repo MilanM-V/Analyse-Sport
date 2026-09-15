@@ -79,16 +79,20 @@ def parse_db():
                     if not player_raw:
                         continue
                         
+                    point = outcome.get('point', 0.5)
                     price = outcome.get('price')
                         
                     norm_name = normalize_name(player_raw)
                     
+                    # Formater le nom du marché avec la ligne de pari (ex: but_0_5, pts_1_5)
+                    market_with_line = f"{market_name}_{str(point).replace('.', '_')}"
+                    
                     if norm_name not in match_odds:
                         match_odds[norm_name] = {}
-                    if market_name not in match_odds[norm_name]:
-                        match_odds[norm_name][market_name] = []
+                    if market_with_line not in match_odds[norm_name]:
+                        match_odds[norm_name][market_with_line] = []
                         
-                    match_odds[norm_name][market_name].append(price)
+                    match_odds[norm_name][market_with_line].append(price)
                     
         # Agréger par la médiane
         for norm_name, markets in match_odds.items():

@@ -234,10 +234,17 @@ def build_rolling_features(df, priors_tuple):
     # Calcul des L10 par joueur avec décalage strict (shift(1)) pour éliminer le look-ahead bias
     grouped = df.groupby('name')
     df['ixg_l10'] = grouped['ixg'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
+    df['ixg_l5'] = grouped['ixg'].transform(lambda x: x.shift(1).rolling(5, min_periods=1).mean()).fillna(0)
+    df['hot_streak_ixg'] = df['ixg_l5'] - df['ixg_l10']
+    
     df['sog_l10'] = grouped['sog'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
     df['atoi_l10'] = grouped['atoi'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
     df['l10_g'] = grouped['but'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
     df['l10_a'] = grouped['assist'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
+
+    # Calcul des Splits (Domicile/Extérieur) sur 10 matchs
+    grouped_split = df.groupby(['name', 'home_or_away'])
+    df['split_l10_g'] = grouped_split['but'].transform(lambda x: x.shift(1).rolling(10, min_periods=1).mean()).fillna(0)
 
     # Cumul de saison (expanding shifté)
     df['season_g'] = grouped['but'].transform(lambda x: x.shift(1).expanding().mean()).fillna(0)
@@ -308,9 +315,8 @@ def build_rolling_features(df, priors_tuple):
     df = df.merge(own_stats, on=['gameDate', 'playerTeam', 'season'], how='left')
     df['team_xg_60'] = df['team_xg_60'].fillna(2.80)
 
-    # Gardiens : sans données match-par-match dans goalies CSV, on utilise un proxy
-    # basé sur les buts encaissés par l'équipe adverse (GSAX approximé)
-    df['opp_goalie_gsax_60'] = 0.0  # Neutral par défaut — pas de leakage
+    # Gardiens : le proxy GSAx est déjà calculé plus haut (opp_xga_60 - opp_ga_60)
+    # Ligne supprimée (était: df['opp_goalie_gsax_60'] = 0.0)
 
     # Interaction xG joueur x Qualité défensive adverse
     df['ixg_x_opp_xga'] = df['ixg_l10'] * (df['opp_xga_60'] / 2.80)
@@ -336,9 +342,12 @@ def build_rolling_features(df, priors_tuple):
     df['ixg_x_ga'] = df['ixg_l10'] * df['ga_g']
     df['consec_goals'] = 0.0 # Approximation pour le backtest (évite un calcul complexe qui ralentit)
     
-    # Cibles
-    df['target_but'] = (df['but'] > 0).astype(int)
-    df['target_ast'] = (df['assist'] > 0).astype(int)
+    # Cibles avec séparation des lignes (Over 0.5 vs Over 1.5)
+    df['target_but_0_5'] = (df['but'] > 0).astype(int)
+    df['target_ast_0_5'] = (df['assist'] > 0).astype(int)
+    df['target_ast_1_5'] = (df['assist'] > 1).astype(int)
+    df['target_pts_0_5'] = ((df['but'] + df['assist']) > 0).astype(int)
+    df['target_pts_1_5'] = ((df['but'] + df['assist']) > 1).astype(int)
 
     # Noms normalisés
     df['joueur'] = df['name']
@@ -364,9 +373,10 @@ def save_dataset(df):
         'season_g', 'season_a', 'season_pts', 'ixg_x_hdcf', 'sog_x_atoi',
         'is_top6', 'prior_g60', 'prior_a60', 'prior_sog60', 'prior_sh_pct',
         'opp_xga_60', 'opp_hdca_60', 'opp_goalie_gsax_60', 'team_xg_60',
-        'ixg_x_opp_xga', 'but', 'assist', 'target_but', 'target_ast',
+        'ixg_x_opp_xga', 'but', 'assist', 'target_but_0_5', 'target_ast_0_5',
+        'target_ast_1_5', 'target_pts_0_5', 'target_pts_1_5',
         'pp1', 'is_b2b', 'opp_is_b2b', 'ga_g', 'hdca_g', 'team_scoring_env',
-        'linemate_synergy', 'ixg_x_ga', 'consec_goals'
+        'linemate_synergy', 'ixg_x_ga', 'consec_goals', 'hot_streak_ixg', 'split_l10_g'
     ]
     df_sub = df[[c for c in save_cols if c in df.columns]]
     df_sub.to_sql("historical_players", conn, if_exists="replace", index=False)

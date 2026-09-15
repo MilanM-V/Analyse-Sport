@@ -10,8 +10,10 @@ from typing import Dict, List, Any
 
 from nhl.core.database import insert_pick, insert_player
 from nhl.config.settings import cfg
+from shared.portfolio import Portfolio
 
 logger = logging.getLogger("NHL.LoggerCSV")
+portfolio = Portfolio()
 
 
 def log_picks_to_db(
@@ -38,7 +40,7 @@ def log_picks_to_db(
         f = ds.form_data.get(p["Joueur"], {})
         v5 = ds.v5_data.get(p["Joueur"], {})
         adv = ds.matchups.get(p["Adversaire"], {})
-        insert_pick("picks", {
+        pick_id = insert_pick("picks", {
             "date": today, "vague": wave_label, "joueur": p["Joueur"], "equipe": p["Equipe"],
             "adversaire": p["Adversaire"], "score": p.get("Proba", 0), "verdict": p["Categorie"],
             "pp1": bool(p["PP1"]), "backup": p["Backup"], "b2b": p["B2B"], "is_home": p["IsHome"],
@@ -54,12 +56,14 @@ def log_picks_to_db(
             "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
             "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
         })
+        if pick_id and p.get("Cote") and p.get("MiseNum"):
+            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
     for p in asts:
         f = ds.form_data.get(p["Joueur"], {})
         v5 = ds.v5_data.get(p["Joueur"], {})
         adv = ds.matchups.get(p["Adversaire"], {})
-        insert_pick("picks_assists", {
+        pick_id = insert_pick("picks_assists", {
             "date": today, "vague": wave_label, "joueur": p["Joueur"], "equipe": p["Equipe"],
             "adversaire": p["Adversaire"], "score": p.get("Proba", 0), "verdict": p["Categorie"],
             "pp1": bool(p["PP1"]), "backup": p["Backup"], "b2b": p["B2B"], "is_home": p["IsHome"],
@@ -73,6 +77,8 @@ def log_picks_to_db(
             "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
             "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
         })
+        if pick_id and p.get("Cote") and p.get("MiseNum"):
+            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
     # Marché Points supprimé tel que demandé par l'analyse.
 

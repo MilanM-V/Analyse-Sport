@@ -82,12 +82,16 @@ def load_all_data():
 
     # 2. Charger les cotes depuis la base de production (bot_database)
     conn = sqlite3.connect(DB_PATH)
-    odds = {'but': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']), 
-            'ast': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']),
-            'pts': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result'])}
+    odds = {
+        'but_0_5': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']), 
+        'ast_0_5': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']),
+        'ast_1_5': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']),
+        'pts_0_5': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result']),
+        'pts_1_5': pd.DataFrame(columns=['date', 'joueur', 'cote', 'result'])
+    }
     queries = [
-        ("picks", "but", "but"),
-        ("picks_assists", "ast", "assist"),
+        ("picks", "but_0_5", "but"),
+        ("picks_assists", "ast_0_5", "assist"),
     ]
     for table, cat, target in queries:
         try:
@@ -105,41 +109,29 @@ def load_all_data():
         df_hist_odds = pd.read_csv(hist_odds_path)
         print(f"  [COTES] Chargement de {len(df_hist_odds)} cotes historiques depuis l'API.")
         
-        # Séparer but, ast et pts
-        df_hist_but = df_hist_odds[df_hist_odds['market'] == 'but'].copy()
-        df_hist_ast = df_hist_odds[df_hist_odds['market'] == 'ast'].copy()
-        df_hist_pts = df_hist_odds[df_hist_odds['market'] == 'pts'].copy()
-        
+        categories = ['but_0_5', 'ast_0_5', 'ast_1_5', 'pts_0_5', 'pts_1_5']
         df_unique = df[['date_str', 'player_norm', 'joueur']].drop_duplicates()
         
-        for df_h, cat in [(df_hist_but, 'but'), (df_hist_ast, 'ast'), (df_hist_pts, 'pts')]:
+        for cat in categories:
+            df_h = df_hist_odds[df_hist_odds['market'] == cat].copy()
             merged = df_h.merge(df_unique, left_on=['date', 'player_norm'], right_on=['date_str', 'player_norm'], how='inner')
             merged = merged[['date_str', 'joueur', 'median_odds']].rename(columns={'date_str': 'date', 'median_odds': 'cote'})
+            # Simulation Taxe ARJEL / Marge Winamax : on baisse les cotes historiques de 6% en moyenne
+            merged['cote'] = merged['cote'] * 0.94
             merged['result'] = 0 # Placeholder, on a les vrais target dans df de toute facon
             
             # Ajouter aux odds de prod existantes
             odds[cat] = pd.concat([odds[cat], merged], ignore_index=True).drop_duplicates(subset=['date', 'joueur'], keep='first')
             
-    print(f"  [COTES] Source unifiée picks(but): {len(odds['but'])} | picks_assists: {len(odds['ast'])} | picks_points: {len(odds['pts'])}")
+    print(f"  [COTES] Source unifiée picks(but_0_5): {len(odds['but_0_5'])} | ast_0_5: {len(odds['ast_0_5'])} | ast_1_5: {len(odds['ast_1_5'])} | pts_0_5: {len(odds['pts_0_5'])} | pts_1_5: {len(odds['pts_1_5'])}")
 
-    # 4. Injecter implied_prob_but, implied_prob_ast, implied_prob_pts dans df (pour les features du modèle)
-    df = df.merge(odds['but'][['date', 'joueur', 'cote']].rename(columns={'date': 'date_str', 'cote': 'cote_but'}), on=['date_str', 'joueur'], how='left')
-    df = df.merge(odds['ast'][['date', 'joueur', 'cote']].rename(columns={'date': 'date_str', 'cote': 'cote_ast'}), on=['date_str', 'joueur'], how='left')
-    df = df.merge(odds['pts'][['date', 'joueur', 'cote']].rename(columns={'date': 'date_str', 'cote': 'cote_pts'}), on=['date_str', 'joueur'], how='left')
-
-    df['implied_prob_but'] = np.where(df['cote_but'].notna(), 1.0 / df['cote_but'], 0.0)
-    df['implied_prob_ast'] = np.where(df['cote_ast'].notna(), 1.0 / df['cote_ast'], 0.0)
-    df['implied_prob_pts'] = np.where(df['cote_pts'].notna(), 1.0 / df['cote_pts'], 0.0)
+    # 4. Injecter implied_prob dans df (pour les features du modèle)
+    for cat in ['but_0_5', 'ast_0_5', 'ast_1_5', 'pts_0_5', 'pts_1_5']:
+        df = df.merge(odds[cat][['date', 'joueur', 'cote']].rename(columns={'date': 'date_str', 'cote': f'cote_{cat}'}), on=['date_str', 'joueur'], how='left')
+        df[f'implied_prob_{cat}'] = np.where(df[f'cote_{cat}'].notna(), 1.0 / df[f'cote_{cat}'], 0.0)
     
     # Pour le modèle, la feature s'appelle toujours 'implied_prob'. 
-    # Pendant le split, on va utiliser la probabilité du marché actuel (fait plus loin ou par le modèle).
-    # En fait, dans walk_forward, la colonne s'appelle 'implied_prob'.
-    # Il faudra écraser 'implied_prob' juste avant l'entraînement. 
-    # Pour l'instant, on laisse par défaut sur BUT.
-    df['implied_prob'] = df['implied_prob_but']
-    
-    # Générer target_pts
-    df['target_pts'] = ((df['I_F_goals'] + df['I_F_primaryAssists'] + df['I_F_secondaryAssists']) >= 1).astype(int)
+    df['implied_prob'] = df['implied_prob_but_0_5']
 
     if 'goalie_weakness' not in df.columns:
         df['goalie_weakness'] = 0.08
@@ -195,9 +187,9 @@ def walk_forward(df, all_odds_unified, features, target_col, cat_name,
     """
     dates_with_odds_str = all_odds_unified['date'].unique()
     dates_with_odds = sorted(pd.to_datetime(dates_with_odds_str).date)
-    # Filtrer pour ne garder que les dates où on a la data ET les cotes
+    # Filtrer pour ne garder que les dates où on a la data ET les cotes (Limité à la saison 23/24 pour vitesse)
     all_dates = sorted(df['date'].dt.date.unique())
-    dates = [d for d in all_dates if d in dates_with_odds]
+    dates = [d for d in all_dates if d in dates_with_odds and d >= pd.to_datetime('2023-10-01').date()]
     results = []
 
     model_type_str = "MULTI-BOOSTING ENSEMBLE" if use_ensemble else "XGBOOST CALIBRÉ"
@@ -267,6 +259,10 @@ def walk_forward(df, all_odds_unified, features, target_col, cat_name,
         # Matching avec les cotes réelles (format YYYY-MM-DD string)
         day_str = str(day)  # datetime.date -> 'YYYY-MM-DD'
         
+        # Optimisation : indexer les cotes du jour pour un accès O(1)
+        odds_today = all_odds_unified[all_odds_unified['date'] == day_str]
+        odds_dict = odds_today.set_index('joueur')['cote'].to_dict()
+        
         # Phase 1: Collecter tous les paris potentiels du jour
         daily_bets = []
         for idx_in_today, (_, row) in enumerate(df_today.iterrows()):
@@ -275,16 +271,11 @@ def walk_forward(df, all_odds_unified, features, target_col, cat_name,
 
             result_int = int(row[target_col])
 
-            # Chercher la cote dans le DataFrame unifié
-            odds_match = all_odds_unified[
-                (all_odds_unified['date'] == day_str)
-                & (all_odds_unified['joueur'] == joueur)
-            ]
-
-            if odds_match.empty:
+            # Chercher la cote dans le dictionnaire du jour O(1)
+            if joueur not in odds_dict:
                 continue
 
-            cote = float(odds_match.iloc[0]['cote'])
+            cote = float(odds_dict[joueur])
             # [FIX-BUG-2] Plafonner les cotes extrêmes qui détruisent le P&L (max 25.0)
             if cote > 25.0:
                 continue
@@ -357,14 +348,16 @@ def run_full_backtest(use_ensemble: bool = False, adaptive_ev: bool = False):
     all_results = []
 
     configs = [
-        ('but', FEATURES_BUT, 'target_but'),
-        ('ast', FEATURES_AST, 'target_ast'),
-        ('pts', FEATURES_PTS, 'target_pts'),
+        ('but_0_5', FEATURES_BUT, 'target_but_0_5'),
+        ('ast_0_5', FEATURES_AST, 'target_ast_0_5'),
+        ('ast_1_5', FEATURES_AST, 'target_ast_1_5'),
+        ('pts_0_5', FEATURES_PTS, 'target_pts_0_5'),
+        ('pts_1_5', FEATURES_PTS, 'target_pts_1_5'),
     ]
 
     for cat, features, target_col in configs:
         # Règle de production : les défenseurs sont interdits sur les Buteurs (market_filter.py)
-        df_cat = df[df['position'] != 'D'].copy() if cat == 'but' else df.copy()
+        df_cat = df[df['position'] != 'D'].copy() if cat == 'but_0_5' else df.copy()
         
         # S'assurer d'utiliser la bonne probabilité implicite pour ce marché
         df_cat['implied_prob'] = df_cat[f'implied_prob_{cat}']

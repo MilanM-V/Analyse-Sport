@@ -124,58 +124,58 @@ def _build_parlays_section(
 ) -> str:
     """Construit la section combinés du message Telegram et insère en DB.
 
-    Utilise parlay_engine pour générer :
-    1. INTRA-MATCH Synergique (Passeur + Buteur PP1).
-    2. INTER-MATCH Sécurisé (Double Passeurs sur matchs distincts).
+    Utilise parlay_builder pour générer un combiné strictement inter-match.
     """
-    from nhl.core.parlay_engine import generate_correlated_parlays, generate_dual_assist_parlays
+    from nhl.core.parlay_builder import build_best_parlay, build_synergy_parlay
+    from nhl.core.database import insert_parlay
 
     msg = ""
     today_str = datetime.now().strftime("%Y-%m-%d")
 
-    def _add_combo(p1_name: str, p1_cote: float, p2_name: str, p2_cote: float, 
-                   label: str, emoji: str, type_combo: str, mise: float, cote_combo: float, ev: float) -> str:
-        s = f"<b>{emoji} {label} :</b>\n"
-        s += f"  • {p1_name} @{p1_cote:.2f}\n"
-        s += f"  • {p2_name} @{p2_cote:.2f}\n"
-        s += f"  => <b>Cote Combo : @{cote_combo:.2f}</b> | EV: +{ev*100:.1f}% | Mise: {mise} U\n\n"
+    # 1. Combiné Inter-Match classique
+    best_parlay = build_best_parlay(buts, assists)
+
+    if best_parlay:
+        p1 = best_parlay["pick1"]
+        p2 = best_parlay["pick2"]
+        cote_combo = best_parlay["cote"]
+        ev_combo = best_parlay["ev"]
+        mise = 0.25 # Fun bet
+
+        msg += f"<b>🔥 COMBINÉ SÉCURISÉ INTER-MATCH (EV: +{ev_combo*100:.1f}%) :</b>\n"
+        msg += f"  • {p1['Joueur']} ({p1.get('Categorie', 'Pick')}) @{p1['Cote']:.2f}\n"
+        msg += f"  • {p2['Joueur']} ({p2.get('Categorie', 'Pick')}) @{p2['Cote']:.2f}\n"
+        msg += f"  => <b>Cote Combo : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+
         insert_parlay({
-            "date": today_str, "vague": wave_label, "type_combo": type_combo,
-            "leg1_joueur": p1_name, "leg2_joueur": p2_name,
+            "date": today_str, "vague": wave_label, "type_combo": "STRICT_INTER_MATCH",
+            "leg1_joueur": p1["Joueur"], "leg2_joueur": p2["Joueur"],
             "leg3_joueur": None,
             "cote_totale": cote_combo, "mise": mise
         })
-        return s
+    else:
+        msg += "  <i>Aucun combiné EV+ inter-match possible pour cette vague.</i>\n\n"
 
-    parlays_added = 0
-
-    all_parlays = []
-
-    # 1. INTRA-MATCH : Synergie Passeur + Buteur (Winamax MyMatch)
-    sg_parlays = generate_correlated_parlays(buts, assists, min_combined_ev=0.15)
-    for p in sg_parlays:
-        p['_label'] = f"WINAMAX MYMATCH — Synergie {p['equipe']} ({p['note']})"
-        p['_emoji'] = "🔥"
-        all_parlays.append(p)
-
-    # 2. INTER-MATCH : Double Passeurs (Winamax Combiné Sécurisé)
-    cross_parlays = generate_dual_assist_parlays(assists, min_combined_ev=0.15)
-    for p in cross_parlays:
-        p['_label'] = "WINAMAX COMBINÉ — Double Passeurs Élite"
-        p['_emoji'] = "🅰️"
-        all_parlays.append(p)
-
-    all_parlays.sort(key=lambda x: x['ev'], reverse=True)
-
-    if all_parlays:
-        best_p = all_parlays[0]
-        msg += _add_combo(
-            best_p["leg1_joueur"], best_p["leg1_cote"], best_p["leg2_joueur"], best_p["leg2_cote"],
-            best_p['_label'], best_p['_emoji'], best_p["type"], best_p["mise"], best_p["cote_totale"], best_p["ev"]
-        )
-        parlays_added += 1
-
-    if parlays_added == 0:
-        msg += "  <i>Aucun combiné EV+ possible pour cette vague.</i>\n"
+    # 2. MyMatch Synergy (Nouveau)
+    synergy_parlay = build_synergy_parlay(buts, assists)
+    
+    if synergy_parlay:
+        p1 = synergy_parlay["pick1"]
+        p2 = synergy_parlay["pick2"]
+        cote_combo = synergy_parlay["cote"]
+        ev_combo = synergy_parlay["ev"]
+        mise = 0.25 # Fun bet
+        
+        msg += f"<b>⚡ MYMATCH SYNERGY (CORRÉLATION DE LIGNE) (EV: +{ev_combo*100:.1f}%) :</b>\n"
+        msg += f"  • {p1['Joueur']} (Buteur) @{p1['Cote']:.2f}\n"
+        msg += f"  • {p2['Joueur']} (Passeur) @{p2['Cote']:.2f}\n"
+        msg += f"  => <b>Cote MyMatch : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        
+        insert_parlay({
+            "date": today_str, "vague": wave_label, "type_combo": "SYNERGY_MYMATCH",
+            "leg1_joueur": p1["Joueur"], "leg2_joueur": p2["Joueur"],
+            "leg3_joueur": None,
+            "cote_totale": cote_combo, "mise": mise
+        })
 
     return msg

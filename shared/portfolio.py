@@ -217,6 +217,27 @@ class Portfolio:
         )
         return gain
 
+    def resolve_bet_by_pick_id(self, pick_id: int, sport: str, won: bool) -> float:
+        """Résout un pari en utilisant le pick_id d'origine (ex: id de la table picks de la NHL).
+        
+        Args:
+            pick_id: ID du pick dans la base du sport.
+            sport: Nom du sport ('nhl').
+            won: True si le pari est gagné.
+            
+        Returns:
+            Le gain en Unités.
+        """
+        conn = self._get_conn()
+        c = conn.cursor()
+        c.execute("SELECT id FROM portfolio WHERE pick_id = ? AND sport = ? AND resolved = 0", (pick_id, sport))
+        row = c.fetchone()
+        conn.close()
+        
+        if row:
+            return self.resolve_bet(row[0], won)
+        return 0.0
+
     def get_daily_pnl(self, date: Optional[str] = None) -> Dict[str, Any]:
         """Calcule le P&L du jour (ou d'une date donnée).
 
