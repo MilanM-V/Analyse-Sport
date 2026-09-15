@@ -126,12 +126,13 @@ def _build_parlays_section(
 
     Utilise parlay_builder pour générer un combiné strictement inter-match.
     """
-    from nhl.core.parlay_builder import build_best_parlay
+    from nhl.core.parlay_builder import build_best_parlay, build_synergy_parlay
     from nhl.core.database import insert_parlay
 
     msg = ""
     today_str = datetime.now().strftime("%Y-%m-%d")
 
+    # 1. Combiné Inter-Match classique
     best_parlay = build_best_parlay(buts, assists)
 
     if best_parlay:
@@ -153,6 +154,28 @@ def _build_parlays_section(
             "cote_totale": cote_combo, "mise": mise
         })
     else:
-        msg += "  <i>Aucun combiné EV+ inter-match possible pour cette vague.</i>\n"
+        msg += "  <i>Aucun combiné EV+ inter-match possible pour cette vague.</i>\n\n"
+
+    # 2. MyMatch Synergy (Nouveau)
+    synergy_parlay = build_synergy_parlay(buts, assists)
+    
+    if synergy_parlay:
+        p1 = synergy_parlay["pick1"]
+        p2 = synergy_parlay["pick2"]
+        cote_combo = synergy_parlay["cote"]
+        ev_combo = synergy_parlay["ev"]
+        mise = 0.25 # Fun bet
+        
+        msg += f"<b>⚡ MYMATCH SYNERGY (CORRÉLATION DE LIGNE) (EV: +{ev_combo*100:.1f}%) :</b>\n"
+        msg += f"  • {p1['Joueur']} (Buteur) @{p1['Cote']:.2f}\n"
+        msg += f"  • {p2['Joueur']} (Passeur) @{p2['Cote']:.2f}\n"
+        msg += f"  => <b>Cote MyMatch : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        
+        insert_parlay({
+            "date": today_str, "vague": wave_label, "type_combo": "SYNERGY_MYMATCH",
+            "leg1_joueur": p1["Joueur"], "leg2_joueur": p2["Joueur"],
+            "leg3_joueur": None,
+            "cote_totale": cote_combo, "mise": mise
+        })
 
     return msg
