@@ -42,7 +42,7 @@ FEATURES_BASE = [
     'is_b2b', 'opp_is_b2b', 'consec_goals',
     'ixg_x_hdcf', 'sog_x_atoi', 'ixg_x_ga',
     'is_top6', 'linemate_synergy', 'team_scoring_env',
-    'implied_prob', 'goalie_weakness'
+    'goalie_weakness', 'opp_goalie_gsax_60'
 ]
 FEATURES_BUT = [f for f in FEATURES_BASE if f != 'season_a']
 FEATURES_AST = FEATURES_BASE
@@ -53,7 +53,7 @@ FEATURES_HIST_BASE = [
     'season_g', 'season_a', 'season_pts', 'ixg_x_hdcf', 'sog_x_atoi',
     'is_top6', 'prior_g60', 'prior_a60', 'prior_sog60', 'prior_sh_pct',
     'opp_xga_60', 'opp_hdca_60', 'opp_goalie_gsax_60', 'team_xg_60',
-    'ixg_x_opp_xga', 'is_home', 'implied_prob', 'goalie_weakness'
+    'ixg_x_opp_xga', 'is_home', 'goalie_weakness'
 ]
 FEATURES_HIST_BUT = [f for f in FEATURES_HIST_BASE if f not in ['season_a', 'l10_a', 'prior_a60']]
 FEATURES_HIST_AST = [f for f in FEATURES_HIST_BASE if f not in ['prior_sh_pct']]
@@ -71,7 +71,12 @@ def load_clean_data(use_historical: bool = False):
             df = pd.read_parquet(parquet_path)
             df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values('date').reset_index(drop=True)
+            df['target_but'] = df.get('target_but_0_5', 0)
+            df['target_ast'] = df.get('target_ast_0_5', 0)
+            df['goalie_sv_pct'] = pd.to_numeric(df.get('goalie_sv_pct', np.nan), errors='coerce')
+            df['goalie_weakness'] = np.where(df['goalie_sv_pct'] > 0, 1.0 - df['goalie_sv_pct'], 0.08)
             return df, FEATURES_HIST_BUT, FEATURES_HIST_AST
+
 
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql(

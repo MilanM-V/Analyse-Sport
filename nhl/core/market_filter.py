@@ -123,13 +123,10 @@ def prepare_features_for_player(p_form: Dict[str, Any], v5_p: Dict[str, Any], ad
         'prior_sh_pct': prior_sh_pct,
         'opp_xga_60': opp_xga_60,
         'opp_hdca_60': opp_hdca_60,
-        'opp_goalie_gsax_60': 0.0, # Simplification pour le live
+        'opp_goalie_gsax_60': opp_xga_60 - ga_g, # Correction du proxy GSAx
         'team_xg_60': 2.8,
         'ixg_x_opp_xga': ixg_x_opp_xga,
         # === NOUVELLES FEATURES (P5) ===
-        # Cote implicite du marché : feature #1 en paris sportifs.
-        # Capture l'opinion agrégée de milliers de parieurs/modèles.
-        'implied_prob': (1.0 / cote) if (cote and cote > 1.05) else 0.0,
         # Gardien adverse : faiblesse = 1 - SV%.
         # Plus le gardien est faible, plus la valeur est élevée.
         'goalie_weakness': (
@@ -142,8 +139,12 @@ def prepare_features_for_player(p_form: Dict[str, Any], v5_p: Dict[str, Any], ad
         'linemate_synergy': (season_g + season_a) * (1.0 if pp1 else 0.0),
         'team_scoring_env': ga_g * hdca_g,
         # === NOUVELLES FEATURES CONTEXTUELLES (P2) ===
-        'hot_streak_ixg': float(consec_goals) * 0.15, # Proxy temps-réel (difficile d'avoir le L5 pur sans DB complète en RAM)
-        'split_l10_g': (season_g / 82.0 * 10.0) if season_g else 0.0, # Proxy temporaire
+        # TODO(next-retrain): Supprimer ces 2 features redondantes au prochain re-training.
+        # hot_streak_ixg ≈ consec_goals * constante → linéairement dépendant de consec_goals
+        # split_l10_g ≈ season_g * constante → linéairement dépendant de season_g
+        # Conservées pour compatibilité avec les modèles .joblib actuels.
+        'hot_streak_ixg': float(consec_goals) * 0.15,
+        'split_l10_g': (season_g / 82.0 * 10.0) if season_g else 0.0,
     }
     
     # Construire le vecteur exact dans l'ordre du modèle

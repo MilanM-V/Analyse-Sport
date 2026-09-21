@@ -53,12 +53,10 @@ def calculate_quarter_kelly(proba: float, cote: Optional[float], categorie: str 
     if f > 0:
         ev = (p * cote) - 1.0
         
-        # Mode Safe (Phase 4) : Si proba forte ou très gros avantage (Edge) -> On booste le plafond de 1 Unité
-        is_safe = (p >= 0.60) or (ev >= 0.20)
-        if is_safe:
-            cap += 1.0
+        # Mode Safe (Phase 4) supprimé : on ne booste plus le cap 
+        # artificiellement pour éviter la sur-exposition liée à la surconfiance.
             
-        # Fraction Kelly dynamique : 1/6ème sur les Passeurs à fort Edge (EV >= 12%)
+        # Fraction Kelly dynamique : 1/6ème sur les Passeurs à fort Edge (EV >= 0.12)
         # et 1/8ème pour les autres marchés à plus forte variance
         if categorie == "PASSEUR" and ev >= 0.12:
             fraction = 6.0 + brier_penalty

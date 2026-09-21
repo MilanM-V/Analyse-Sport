@@ -252,12 +252,30 @@ class NhlBot(BaseSportBot):
                 else:
                     logger.info(f"   {compo} — On réessaiera au prochain cycle.")
 
+            # EARLY PASS at 17:00
+            now = datetime.now()
+            if now.hour == 17 and now.minute <= 30 and getattr(self, '_early_pass_done_date', None) != now.date():
+                logger.info("Déclenchement du Early Pass (17h00).")
+                self.evaluate_early_pass()
+                self._early_pass_done_date = now.date()
+
             self.evaluate_waves(self.matches_du_jour)
         except Exception as e:
             logger.error(f"ERREUR CRITIQUE lors du run_scan_cycle : {e}", exc_info=True)
             self.telegram.send_crash_alert(e, context="run_scan_cycle")
         finally:
             self._scan_lock.release()
+
+    def evaluate_early_pass(self) -> None:
+        """Envoie un message informatif avec les compos probables à 17h."""
+        if not self.compos_en_memoire:
+            return
+        
+        ready_ids = list(self.compos_en_memoire.keys())
+        if ready_ids:
+            wave_label = f"PREMIER JET 17H - COMPOS PROBABLES ({len(ready_ids)} matchs)"
+            logger.info(f"   Early Pass {wave_label}   ENVOI !")
+            self.run_analysis_and_send(ready_ids, wave_label, is_early=True)
 
     def evaluate_waves(self, matches_du_jour: List[Dict[str, Any]]) -> None:
         """Processes available lineups into waves and triggers analysis."""
@@ -288,7 +306,7 @@ class NhlBot(BaseSportBot):
             logger.info(f"   Vagues combinées {wave_label}   ENVOI !")
             self.run_analysis_and_send(ready_ids, wave_label)
 
-    def run_analysis_and_send(self, wave_ids: List[str], wave_label: str) -> None:
+    def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
         """Performs analysis on a wave of matches and sends results."""
         from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets
         from nhl.core.kelly import is_cote_valid, apply_kelly_to_picks
@@ -304,8 +322,10 @@ class NhlBot(BaseSportBot):
                 c = data["compo"]
                 f.write(f"Match : {m['home']} - {m['away']} ({m['time']})\n"
                         f"  goal dom: {c['goalDom']}\n  goal ext: {c['goalext']}\n"
-                        f"  f1 dom: {c['f1_dom']}\n  f1 ext: {c['f1_ext']}\n"
-                        f"  f2 dom: {c['f2_dom']}\n  f2 ext: {c['f2_ext']}\n"
+                        f"  f1 dom: {', '.join(c['f1_dom']) if isinstance(c['f1_dom'], list) else c['f1_dom']}\n"
+                        f"  f1 ext: {', '.join(c['f1_ext']) if isinstance(c['f1_ext'], list) else c['f1_ext']}\n"
+                        f"  f2 dom: {', '.join(c['f2_dom']) if isinstance(c['f2_dom'], list) else c['f2_dom']}\n"
+                        f"  f2 ext: {', '.join(c['f2_ext']) if isinstance(c['f2_ext'], list) else c['f2_ext']}\n"
                         f"{'-'*40}\n")
 
         ds = self.datastore
@@ -434,7 +454,12 @@ class NhlBot(BaseSportBot):
         if players_to_fetch:
             logger.info(f"Récupération des cotes (API) pour {len(players_to_fetch)} joueurs évalués...")
             from shared.odds_api import fetch_nhl_odds
-            odds_map = asyncio.run(fetch_nhl_odds(players_to_fetch))
+            # asyncio.run() ne fonctionne pas dans un thread background — créer un loop dédié
+            loop = asyncio.new_event_loop()
+            try:
+                odds_map = loop.run_until_complete(fetch_nhl_odds(players_to_fetch))
+            finally:
+                loop.close()
             
             any_odds_found = any((data.get('BUTS') is not None) or (data.get('ASSISTS') is not None) for data in odds_map.values())
             if not any_odds_found:
@@ -521,17 +546,18 @@ class NhlBot(BaseSportBot):
         )
         self.telegram.send_message(msg)
 
-        session_date = self.get_nhl_session_date()
-        log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
-        log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
-        
-        # --- EXPORT DASHBOARD ---
-        try:
-            import dashboard.exporter as dashboard_exporter
-            dashboard_exporter.export_data()
-            dashboard_exporter.git_commit_and_push()
-        except Exception as e:
-            logger.error(f"Erreur lors de l'export du dashboard : {e}")
+        if not is_early:
+            session_date = self.get_nhl_session_date()
+            log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
+            log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+            
+            # --- EXPORT DASHBOARD ---
+            try:
+                import dashboard.exporter as dashboard_exporter
+                dashboard_exporter.export_data()
+                dashboard_exporter.git_commit_and_push()
+            except Exception as e:
+                logger.error(f"Erreur Export Dashboard : {e}")
 
     # Plafonds exposés pour les tests (délègue au module kelly)
     from nhl.core.kelly import CATEGORY_CAPS

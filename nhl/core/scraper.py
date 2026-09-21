@@ -206,7 +206,7 @@ def get_lineups(match_id, home="", away=""):
         return "compo pas dispo"
 
     def filter_injuries(lines_list, injuries_set):
-        return ", ".join([p for p in lines_list if p not in injuries_set])
+        return [p for p in lines_list if p not in injuries_set]
 
     def get_line_players(data, primary_key, fallback_key):
         return data["lines"].get(primary_key, []) or data["lines"].get(fallback_key, [])

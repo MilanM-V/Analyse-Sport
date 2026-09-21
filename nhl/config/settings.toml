@@ -18,7 +18,7 @@ l10_a_min = 0.60
 home_only = true
 atoi_min = 16.0
 opp_ga_min = 2.6
-cote_min = 2.20  # Sécurité : Évite les cotes trop basses à ROI négatif
+cote_min = 2.50  # Sécurité : Évite les cotes trop basses à ROI négatif
 
 [thresholds.pointeurs]
 # OMEGA Optimal — Pointeurs (+62.3 U)
@@ -55,7 +55,7 @@ force_envoi_min_avant = 17
 decimal_separator = ","
 
 [api]
-mode = "playoff"        # "regular" ou "playoff"
+mode = "regular"        # "regular" ou "playoff"
 season_id = "20252026"
-game_type = "2"         # Ne pas toucher manuellement en mode playoff
+game_type = "2"         # 2 = saison régulière, 3 = playoffs
 semaphore_limit = 20

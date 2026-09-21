@@ -23,10 +23,10 @@ load_dotenv()
 
 # Liste des fichiers à sauvegarder (chemins relatifs par rapport à la racine du projet)
 FILES_TO_BACKUP = [
-    "nhl/data/bot_database.db",
-    "mlb/data/dataset_strikeouts.csv",
-    "shared/data/portfolio.db",
-    "portfolio.db" # Au cas où il serait à la racine
+    "nhl/bot_database.db",            # Base NHL principale (110 MB)
+    "portfolio.db",                    # Base portfolio partagée (racine)
+    "nhl/stats/picks_log.csv",         # Historique des picks
+    "mlb_database.db",                 # Base MLB (racine)
 ]
 
 def create_backup_zip() -> str:

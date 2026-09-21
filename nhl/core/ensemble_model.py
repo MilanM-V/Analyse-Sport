@@ -54,7 +54,9 @@ class NHLEnsembleClassifier(BaseEstimator, ClassifierMixin):
             try:
                 with open(cfg_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    return data.get(self.market, {})
+                    # Fallback chain: try exact key first, then {market}_0_5
+                    # (JSON uses "but_0_5"/"ast_0_5", but self.market is "but"/"ast")
+                    return data.get(self.market) or data.get(f"{self.market}_0_5", {})
             except Exception:
                 pass
         return {}
@@ -117,7 +119,7 @@ class NHLEnsembleClassifier(BaseEstimator, ClassifierMixin):
 
         base_models = self._init_base_models(scale_pos)
         self.models_ = base_models
-        # 2. Entraînement et calibration de chaque modèle complet
+        # 2. Entraînement et calibration sigmoid de chaque modèle complet
         for name, model in base_models.items():
             calibrated = CalibratedClassifierCV(model, method='sigmoid', cv=tscv, n_jobs=None)
             calibrated.fit(X, y)

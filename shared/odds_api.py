@@ -75,7 +75,12 @@ class OddsAPIClient:
                 async with session.get(events_url, params=params) as resp:
                     cls.check_quota(resp.headers)
                     if resp.status != 200:
-                        logger.error(f"Erreur Events API [{resp.status}]: {await resp.text()}")
+                        err_text = await resp.text()
+                        logger.error(f"Erreur Events API [{resp.status}]: {err_text}")
+                        if resp.status in (401, 429) or "credits" in err_text.lower():
+                            if not getattr(cls, '_quota_error_sent', False):
+                                send_telegram(f"❌ <b>ERREUR THE ODDS API</b>\n\nLe bot n'a plus de crédits ou la clé est bloquée (Code: {resp.status}). Récupération des cotes interrompue.", recipient="admin")
+                                cls._quota_error_sent = True
                         return {}
                     events_data = await resp.json()
             except Exception as e:
@@ -128,7 +133,12 @@ class OddsAPIClient:
                             # Marché non disponible pour cet event, on l'ignore
                             continue
                         elif resp.status != 200:
-                            logger.error(f"Erreur Odds API event {event_id} [{resp.status}]")
+                            err_text = await resp.text()
+                            logger.error(f"Erreur Odds API event {event_id} [{resp.status}]: {err_text}")
+                            if resp.status in (401, 429) or "credits" in err_text.lower():
+                                if not getattr(cls, '_quota_error_sent', False):
+                                    send_telegram(f"❌ <b>ERREUR THE ODDS API</b>\n\nLe bot n'a plus de crédits ou la clé est bloquée (Code: {resp.status}). Récupération des cotes interrompue.", recipient="admin")
+                                    cls._quota_error_sent = True
                             continue
                             
                         event_odds = await resp.json()

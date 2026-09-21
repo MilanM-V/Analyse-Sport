@@ -1,6 +1,5 @@
 import requests
 import logging
-import unicodedata
 import os
 import sys
 from datetime import datetime
@@ -11,52 +10,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from  core.database import get_connection
 from nhl.core.services import safe_get
 from shared.portfolio import Portfolio
+from shared.utils import normalize_name, match_player_name  # Source unique
 
 logger = logging.getLogger("NHL.Updater")
 portfolio = Portfolio()
 
 # Import centralisé depuis la source unique
 from nhl.config.constants import ALL_ABBRS
-
-def normalize_name(name):
-    """Supprime les accents et normalise le texte pour faciliter la comparaison."""
-    if not name: return ""
-    # Décompose les caractères accentués (NFD) et filtre les marques de diacritiques
-    normalized = unicodedata.normalize('NFD', name)
-    return "".join(c for c in normalized if not unicodedata.combining(c)).strip()
-
-def match_player_name(db_name, api_name):
-    """
-    db_name  : 'Alexis Lafrenière'
-    api_name : 'A. Lafreniere' ou 'Alexis Lafreniere'
-    """
-    db_clean = normalize_name(db_name).lower()
-    api_clean = normalize_name(api_name).lower()
-
-    # 1. Correspondance exacte après normalisation
-    if db_clean == api_clean:
-        return True
-
-    # 2. Correspondance Initiale + Nom (Format API classique 'J. Hughes')
-    if "." in api_clean:
-        parts = api_clean.split(".", 1)
-        initial = parts[0].strip()
-        last_name = parts[1].strip()
-        
-        # Vérifie si le db_name commence par l'initial et finit par le nom
-        db_parts = db_clean.split()
-        if len(db_parts) >= 2:
-            # On vérifie l'initiale et le nom de famille (dernier mot)
-            return db_clean.startswith(initial) and db_parts[-1] == last_name
-
-    # 3. Correspondance Partielle (Initiale + Nom de famille identique)
-    # Gère 'Alexander Ovechkin' vs 'Alex Ovechkin'
-    db_parts = db_clean.split()
-    api_parts = api_clean.split()
-    if len(db_parts) >= 2 and len(api_parts) >= 2:
-        return db_parts[0][0] == api_parts[0][0] and db_parts[-1] == api_parts[-1]
-
-    return False
 
 def update_pending_picks():
     """
