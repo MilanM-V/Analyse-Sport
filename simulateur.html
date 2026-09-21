@@ -181,8 +181,8 @@
         </div>
 
         <div class="form-group">
-            <label>Volume de Paris (Saison)</label>
-            <input type="number" id="totalBets" value="750" min="100" step="50">
+            <label>Nombre de Soirées (Saison)</label>
+            <input type="number" id="totalNights" value="180" min="50" step="10">
         </div>
 
         <div class="form-group">
@@ -196,8 +196,22 @@
         </div>
         
         <div class="form-group">
-            <label>Mise Moyenne (Unités)</label>
+            <label>Unités Misées par Soirée</label>
+            <input type="number" id="unitsPerNight" value="4.5" min="0.5" step="0.5">
+        </div>
+        
+        <div class="form-group">
+            <label>Mise Moyenne par Pari (U)</label>
             <input type="number" id="avgStake" value="1.5" min="0.1" step="0.1">
+        </div>
+
+        <div class="form-group" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+            <h3 style="font-size: 16px; color: var(--accent); margin-bottom: 15px;">🎯 Objectif Financier (Reverse)</h3>
+            <label>Je veux gagner (Moyenne par Mois en €)</label>
+            <input type="number" id="targetMonth" value="500" min="10" step="50" onchange="calculateTarget()">
+            <div id="targetResult" style="margin-top: 15px; font-size: 14px; color: var(--text-muted); line-height: 1.5; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px;">
+                <!-- Result gets updated here -->
+            </div>
         </div>
 
         <button onclick="runSimulation()">Lancer la Simulation</button>
@@ -233,10 +247,15 @@
         // Récupération des paramètres
         const unitValue = parseFloat(document.getElementById('unitValue').value);
         const startUnits = parseFloat(document.getElementById('startUnits').value);
-        const totalBets = parseInt(document.getElementById('totalBets').value);
+        const totalNights = parseInt(document.getElementById('totalNights').value);
+        const unitsPerNight = parseFloat(document.getElementById('unitsPerNight').value);
         const avgOdds = parseFloat(document.getElementById('avgOdds').value);
         const winRate = parseFloat(document.getElementById('winRate').value) / 100.0;
         const avgStake = parseFloat(document.getElementById('avgStake').value);
+
+        // Calcul du volume total de paris (Arrondi au pari entier le plus proche)
+        const betsPerNight = unitsPerNight / avgStake;
+        const totalBets = Math.round(totalNights * betsPerNight);
 
         let currentBankroll = startUnits;
         let totalWagered = 0;
@@ -280,6 +299,39 @@
 
         // Mise à jour du graphique
         drawChart(labels, equityCurve, startUnits);
+        
+        // Mise à jour du calculateur d'objectif
+        calculateTarget();
+    }
+
+    function calculateTarget() {
+        const targetMonth = parseFloat(document.getElementById('targetMonth').value);
+        const totalNights = parseInt(document.getElementById('totalNights').value);
+        const unitsPerNight = parseFloat(document.getElementById('unitsPerNight').value);
+        const avgOdds = parseFloat(document.getElementById('avgOdds').value);
+        const winRate = parseFloat(document.getElementById('winRate').value) / 100.0;
+        
+        // Edge mathématique par unité
+        const edge = (winRate * avgOdds) - 1.0;
+        
+        const expectedProfitUnitsPerNight = unitsPerNight * edge;
+        const seasonMonths = 7.0; // Mois de saison régulière + playoffs
+        const nightsPerMonth = totalNights / seasonMonths;
+        const expectedProfitUnitsPerMonth = expectedProfitUnitsPerNight * nightsPerMonth;
+        
+        const resDiv = document.getElementById('targetResult');
+        
+        if (expectedProfitUnitsPerMonth <= 0) {
+            resDiv.innerHTML = "<span style='color: var(--danger)'>Avec ces statistiques, le système est perdant (Edge négatif).</span>";
+            return;
+        }
+        
+        const requiredUnitValue = targetMonth / expectedProfitUnitsPerMonth;
+        const recommendedBankroll = requiredUnitValue * 100; // Standard de 100 U
+        
+        resDiv.innerHTML = `Pour viser <strong style="color:white">${targetMonth} € / mois</strong> (soit ${targetMonth*7} €/saison) :<br><br>
+        👉 L'Unité doit être de <strong style="color:var(--success)">${requiredUnitValue.toFixed(1)} €</strong><br>
+        👉 Bankroll conseillée : <strong style="color:var(--accent)">${Math.ceil(recommendedBankroll)} €</strong>`;
     }
 
     function drawChart(labels, data, startUnits) {
