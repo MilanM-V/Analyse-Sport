@@ -1,57 +1,19 @@
 import os
 import requests
-import time
-from functools import wraps
 import logging
 from datetime import datetime
 from typing import Optional, Any, Dict, List, Callable
+from functools import wraps
 
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Application, CallbackQueryHandler
 import asyncio
 
+# Re-export depuis shared.utils pour compatibilité ascendante
+# (updater.py fait `from nhl.core.services import safe_get`)
+from shared.utils import retry_request, safe_get, safe_post  # noqa: F401
+
 logger = logging.getLogger("NHL.Services")
-
-def retry_request(max_retries: int = 3, base_delay: float = 2.0) -> Callable:
-    """
-    Decorator for exponential backoff on HTTP requests.
-    
-    Args:
-        max_retries: Maximum number of retries.
-        base_delay: Initial delay between retries in seconds.
-    """
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            retries = 0
-            while retries < max_retries:
-                try:
-                    return func(*args, **kwargs)
-                except (requests.exceptions.RequestException, Exception) as e:
-                    retries += 1
-                    if retries == max_retries:
-                        logger.error(f"Erreur HTTP persistante après {max_retries} tentatives : {e}")
-                        raise
-                    delay = base_delay * (2 ** (retries - 1))
-                    logger.warning(f"Erreur HTTP ({e}). Tentative {retries}/{max_retries} dans {delay}s...")
-                    time.sleep(delay)
-            return None
-        return wrapper
-    return decorator
-
-@retry_request(max_retries=3, base_delay=2.0)
-def safe_get(url: str, **kwargs) -> requests.Response:
-    """Performs a GET request with retry logic."""
-    resp = requests.get(url, **kwargs)
-    resp.raise_for_status()
-    return resp
-
-@retry_request(max_retries=3, base_delay=2.0)
-def safe_post(url: str, **kwargs) -> requests.Response:
-    """Performs a POST request with retry logic."""
-    resp = requests.post(url, **kwargs)
-    resp.raise_for_status()
-    return resp
 
 class TelegramNotifier:
     """Service to handle Telegram notifications via python-telegram-bot."""

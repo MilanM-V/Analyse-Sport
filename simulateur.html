@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulateur de Bankroll - NHL Bot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.4);
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.1), transparent 25%);
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 30px;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 25px;
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 12px 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: 'Inter', sans-serif;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        button {
+            width: 100%;
+            background: linear-gradient(135deg, #2563eb, #4f46e5);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px var(--accent-glow);
+        }
+
+        .results {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 16px;
+            text-align: center;
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 800;
+            margin: 10px 0 5px 0;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .success { color: var(--success); }
+        .danger { color: var(--danger); }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
+            .results { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Panneau de Contrôle -->
+    <div class="panel">
+        <h1>⚙️ Paramètres de Saison</h1>
+        
+        <div class="form-group">
+            <label>Valeur de 1 Unité (€)</label>
+            <input type="number" id="unitValue" value="50" min="1" step="5">
+        </div>
+        
+        <div class="form-group">
+            <label>Bankroll Initiale (Unités)</label>
+            <input type="number" id="startUnits" value="100" min="10" step="10">
+        </div>
+
+        <div class="form-group">
+            <label>Nombre de Soirées (Saison)</label>
+            <input type="number" id="totalNights" value="180" min="50" step="10">
+        </div>
+
+        <div class="form-group">
+            <label>Cote Moyenne Jouée</label>
+            <input type="number" id="avgOdds" value="2.80" min="1.5" step="0.1">
+        </div>
+
+        <div class="form-group">
+            <label>Taux de Victoire (Win Rate %)</label>
+            <input type="number" id="winRate" value="38" min="20" max="80" step="1">
+        </div>
+        
+        <div class="form-group">
+            <label>Unités Misées par Soirée</label>
+            <input type="number" id="unitsPerNight" value="4.5" min="0.5" step="0.5">
+        </div>
+        
+        <div class="form-group">
+            <label>Mise Moyenne par Pari (U)</label>
+            <input type="number" id="avgStake" value="1.5" min="0.1" step="0.1">
+        </div>
+
+        <div class="form-group" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px;">
+            <h3 style="font-size: 16px; color: var(--accent); margin-bottom: 15px;">🎯 Objectif Financier (Reverse)</h3>
+            <label>Je veux gagner (Moyenne par Mois en €)</label>
+            <input type="number" id="targetMonth" value="500" min="10" step="50" onchange="calculateTarget()">
+            <div id="targetResult" style="margin-top: 15px; font-size: 14px; color: var(--text-muted); line-height: 1.5; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px;">
+                <!-- Result gets updated here -->
+            </div>
+        </div>
+
+        <button onclick="runSimulation()">Lancer la Simulation</button>
+    </div>
+
+    <!-- Résultats & Graphique -->
+    <div class="panel">
+        <div class="results">
+            <div class="stat-card">
+                <div class="stat-label">Profit Net (Unités)</div>
+                <div class="stat-value" id="resUnits">0.0 U</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Profit Net (€)</div>
+                <div class="stat-value success" id="resEuro">0 €</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">ROI (Rendement)</div>
+                <div class="stat-value" id="resROI">0.0%</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    let myChart = null;
+
+    function runSimulation() {
+        // Récupération des paramètres
+        const unitValue = parseFloat(document.getElementById('unitValue').value);
+        const startUnits = parseFloat(document.getElementById('startUnits').value);
+        const totalNights = parseInt(document.getElementById('totalNights').value);
+        const unitsPerNight = parseFloat(document.getElementById('unitsPerNight').value);
+        const avgOdds = parseFloat(document.getElementById('avgOdds').value);
+        const winRate = parseFloat(document.getElementById('winRate').value) / 100.0;
+        const avgStake = parseFloat(document.getElementById('avgStake').value);
+
+        // Calcul du volume total de paris (Arrondi au pari entier le plus proche)
+        const betsPerNight = unitsPerNight / avgStake;
+        const totalBets = Math.round(totalNights * betsPerNight);
+
+        let currentBankroll = startUnits;
+        let totalWagered = 0;
+        
+        const equityCurve = [startUnits];
+        const labels = [0];
+
+        // Simulation de la marche aléatoire
+        for (let i = 1; i <= totalBets; i++) {
+            totalWagered += avgStake;
+            const isWin = Math.random() < winRate;
+            
+            if (isWin) {
+                const profit = avgStake * (avgOdds - 1);
+                currentBankroll += profit;
+            } else {
+                currentBankroll -= avgStake;
+            }
+            
+            equityCurve.push(currentBankroll);
+            labels.push(i);
+        }
+
+        const netProfitUnits = currentBankroll - startUnits;
+        const netProfitEuro = netProfitUnits * unitValue;
+        const roi = (netProfitUnits / totalWagered) * 100;
+
+        // Mise à jour de l'UI
+        const uElem = document.getElementById('resUnits');
+        const eElem = document.getElementById('resEuro');
+        const rElem = document.getElementById('resROI');
+
+        uElem.innerText = (netProfitUnits > 0 ? '+' : '') + netProfitUnits.toFixed(1) + ' U';
+        uElem.className = 'stat-value ' + (netProfitUnits >= 0 ? 'success' : 'danger');
+
+        eElem.innerText = (netProfitEuro > 0 ? '+' : '') + Math.round(netProfitEuro).toLocaleString('fr-FR') + ' €';
+        eElem.className = 'stat-value ' + (netProfitEuro >= 0 ? 'success' : 'danger');
+
+        rElem.innerText = (roi > 0 ? '+' : '') + roi.toFixed(2) + '%';
+        rElem.className = 'stat-value ' + (roi >= 0 ? 'success' : 'danger');
+
+        // Mise à jour du graphique
+        drawChart(labels, equityCurve, startUnits);
+        
+        // Mise à jour du calculateur d'objectif
+        calculateTarget();
+    }
+
+    function calculateTarget() {
+        const targetMonth = parseFloat(document.getElementById('targetMonth').value);
+        const totalNights = parseInt(document.getElementById('totalNights').value);
+        const unitsPerNight = parseFloat(document.getElementById('unitsPerNight').value);
+        const avgOdds = parseFloat(document.getElementById('avgOdds').value);
+        const winRate = parseFloat(document.getElementById('winRate').value) / 100.0;
+        
+        // Edge mathématique par unité
+        const edge = (winRate * avgOdds) - 1.0;
+        
+        const expectedProfitUnitsPerNight = unitsPerNight * edge;
+        const seasonMonths = 7.0; // Mois de saison régulière + playoffs
+        const nightsPerMonth = totalNights / seasonMonths;
+        const expectedProfitUnitsPerMonth = expectedProfitUnitsPerNight * nightsPerMonth;
+        
+        const resDiv = document.getElementById('targetResult');
+        
+        if (expectedProfitUnitsPerMonth <= 0) {
+            resDiv.innerHTML = "<span style='color: var(--danger)'>Avec ces statistiques, le système est perdant (Edge négatif).</span>";
+            return;
+        }
+        
+        const requiredUnitValue = targetMonth / expectedProfitUnitsPerMonth;
+        const recommendedBankroll = requiredUnitValue * 100; // Standard de 100 U
+        
+        resDiv.innerHTML = `Pour viser <strong style="color:white">${targetMonth} € / mois</strong> (soit ${targetMonth*7} €/saison) :<br><br>
+        👉 L'Unité doit être de <strong style="color:var(--success)">${requiredUnitValue.toFixed(1)} €</strong><br>
+        👉 Bankroll conseillée : <strong style="color:var(--accent)">${Math.ceil(recommendedBankroll)} €</strong>`;
+    }
+
+    function drawChart(labels, data, startUnits) {
+        const ctx = document.getElementById('equityChart').getContext('2d');
+        
+        if (myChart) {
+            myChart.destroy();
+        }
+
+        const isProfit = data[data.length - 1] >= startUnits;
+        const lineColor = isProfit ? '#10b981' : '#ef4444';
+        const gradientColor = isProfit ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+
+        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, gradientColor);
+        gradient.addColorStop(1, 'rgba(0,0,0,0)');
+
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Bankroll (Unités)',
+                    data: data,
+                    borderColor: lineColor,
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index',
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleFont: { size: 14, family: 'Inter' },
+                        bodyFont: { size: 14, family: 'Inter' },
+                        padding: 10,
+                        displayColors: false,
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.y.toFixed(2) + ' U';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#94a3b8' },
+                        title: { display: true, text: 'Nombre de Paris', color: '#94a3b8' }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#94a3b8' },
+                        title: { display: true, text: 'Bankroll (Unités)', color: '#94a3b8' }
+                    }
+                }
+            }
+        });
+    }
+
+    // Lancement au chargement
+    window.onload = runSimulation;
+</script>
+
+</body>
+</html>

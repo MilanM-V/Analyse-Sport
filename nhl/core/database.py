@@ -269,19 +269,22 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
     conn = get_connection()
     c = conn.cursor()
 
+    params = []
     query = f"SELECT {target_col}, cote, verdict FROM {table} WHERE {target_col} IS NOT NULL AND {target_col} != ''"
     if days != "all":
         try:
             days_int = int(days)
             cutoff = (datetime.now() - timedelta(days=days_int)).strftime('%Y-%m-%d')
-            query += f" AND date >= '{cutoff}'"
+            query += " AND date >= ?"
+            params.append(cutoff)
         except ValueError:
             pass
 
     if game_mode in ("regular", "playoff"):
-        query += f" AND game_mode = '{game_mode}'"
+        query += " AND game_mode = ?"
+        params.append(game_mode)
 
-    c.execute(query)
+    c.execute(query, params)
     rows = c.fetchall()
     conn.close()
 
