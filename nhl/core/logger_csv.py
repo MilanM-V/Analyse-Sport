@@ -1,0 +1,158 @@
+"""
+core/logger_csv.py — Logging des picks et joueurs en SQL et CSV.
+
+Extrait de bot_logic.py pour séparation des responsabilités.
+"""
+import os
+import csv
+import logging
+from typing import Dict, List, Any
+
+from nhl.core.database import insert_pick, insert_player
+from nhl.config.settings import cfg
+from shared.portfolio import Portfolio
+
+logger = logging.getLogger("NHL.LoggerCSV")
+portfolio = Portfolio()
+
+
+def log_picks_to_db(
+    buts: List[Dict[str, Any]],
+    asts: List[Dict[str, Any]],
+    pts: List[Dict[str, Any]],
+    all_players: List[Dict[str, Any]],
+    wave_label: str,
+    today: str,
+    ds: Any,
+) -> None:
+    """Insère les picks et les joueurs évalués dans la base SQLite.
+
+    Args:
+        buts: Picks buteurs sélectionnés.
+        asts: Picks passeurs sélectionnés.
+        pts: Picks pointeurs sélectionnés.
+        all_players: Tous les joueurs évalués (picks + non-picks).
+        wave_label: Label de la vague.
+        today: Date de la session NHL (YYYY-MM-DD).
+        ds: DataStore pour accéder aux form_data, v5_data, matchups.
+    """
+    for p in buts:
+        f = ds.form_data.get(p["Joueur"], {})
+        v5 = ds.v5_data.get(p["Joueur"], {})
+        adv = ds.matchups.get(p["Adversaire"], {})
+        pick_id = insert_pick("picks", {
+            "date": today, "vague": wave_label, "joueur": p["Joueur"], "equipe": p["Equipe"],
+            "adversaire": p["Adversaire"], "score": p.get("Proba", 0), "verdict": p["Categorie"],
+            "pp1": bool(p["PP1"]), "backup": p["Backup"], "b2b": p["B2B"], "is_home": p["IsHome"],
+            "ixg": f.get("L10_ixG_G", 0), "hdcf": f.get("L10_iHDCF_G", 0), "sog": f.get("L10_SOG_G", 0),
+            "atoi": f.get("ATOI", 0), "l10_g": f.get("L10_G_G", 0), "season_g": v5.get("G_GP", 0),
+            "ga_g": adv.get("GA_G", 0), "hdca_g": adv.get("HDCA_G", 0),
+            "opp_b2b": adv.get("B2B", False), "consec_goals": f.get("ConsecGoals", 0),
+            "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
+            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
+            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
+            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
+            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
+            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+        })
+        if pick_id and p.get("Cote") and p.get("MiseNum"):
+            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+
+    for p in asts:
+        f = ds.form_data.get(p["Joueur"], {})
+        v5 = ds.v5_data.get(p["Joueur"], {})
+        adv = ds.matchups.get(p["Adversaire"], {})
+        pick_id = insert_pick("picks_assists", {
+            "date": today, "vague": wave_label, "joueur": p["Joueur"], "equipe": p["Equipe"],
+            "adversaire": p["Adversaire"], "score": p.get("Proba", 0), "verdict": p["Categorie"],
+            "pp1": bool(p["PP1"]), "backup": p["Backup"], "b2b": p["B2B"], "is_home": p["IsHome"],
+            "atoi": f.get("ATOI", 0), "l10_a": f.get("L10_A_G", 0), "season_a": v5.get("A_GP", 0),
+            "ga_g": adv.get("GA_G", 0), "opp_b2b": adv.get("B2B", False),
+            "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
+            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
+            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
+            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
+            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
+            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+        })
+        if pick_id and p.get("Cote") and p.get("MiseNum"):
+            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+
+    # Marché Points supprimé tel que demandé par l'analyse.
+
+    # Unified Player SQL Log
+    for p in all_players:
+        f, v5, adv = p["p_form"], p["p_v5"], p["adv_stats"]
+        insert_player({
+            "date": today, "vague": wave_label, "joueur": p["Joueur"], "equipe": p["Equipe"], "adversaire": p["Adversaire"],
+            "score_but": p["Score_But"], "score_assist": p["Score_Assist"],
+            "picked_but": p["Picked_But"], "picked_assist": p["Picked_Assist"],
+            "pp1": "⭐" in f.get("PP1", ""), "backup": p["Backup"], "b2b": p["B2B"], "is_home": p["IsHome"],
+            "ixg": f.get("L10_ixG_G", 0), "hdcf": f.get("L10_iHDCF_G", 0), "sog": f.get("L10_SOG_G", 0),
+            "atoi": f.get("ATOI", 0), "l10_g": f.get("L10_G_G", 0), "l10_a": f.get("L10_A_G", 0),
+            "season_g": v5.get("G_GP", 0), "season_a": v5.get("A_GP", 0),
+            "ga_g": adv.get("GA_G", 0) if adv else 0, "hdca_g": adv.get("HDCA_G", 0) if adv else 0,
+            "consec_goals": f.get("ConsecGoals", 0), "game_mode": cfg.api.mode,
+            "cote": p.get("Cote"), "goalie_sv_pct": p.get("goalie_sv_pct"),
+            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or "⭐" in f.get("PP1", "")),
+            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if "⭐" in f.get("PP1", "") else 0.0,
+            "team_scoring_env": (adv.get("GA_G", 0) * adv.get("HDCA_G", 0)) if adv else 0.0,
+            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
+            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+        })
+
+
+def log_picks_to_csv(
+    buts: List[Dict[str, Any]],
+    asts: List[Dict[str, Any]],
+    pts: List[Dict[str, Any]],
+    all_players: List[Dict[str, Any]],
+    wave_label: str,
+    today: str,
+    log_path: str,
+    players_log_path: str,
+) -> None:
+    """Écrit les picks et joueurs dans les fichiers CSV de suivi.
+
+    Args:
+        buts: Picks buteurs.
+        asts: Picks passeurs.
+        pts: Picks pointeurs.
+        all_players: Tous les joueurs évalués.
+        wave_label: Label de la vague.
+        today: Date de la session NHL.
+        log_path: Chemin du CSV picks.
+        players_log_path: Chemin du CSV joueurs.
+    """
+    def format_csv(val: Any) -> Any:
+        return str(val).replace('.', cfg.csv.decimal_separator) if isinstance(val, float) else val
+
+    # Picks CSV
+    file_exists = os.path.exists(log_path)
+    try:
+        with open(log_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['date', 'vague', 'joueur', 'type', 'score', 'cote', 'but'])
+            if not file_exists:
+                writer.writeheader()
+            for p in buts:
+                writer.writerow({k: format_csv(v) for k, v in {"date": today, "vague": wave_label, "joueur": p["Joueur"], "type": "BUT", "score": p.get("Proba", 0), "cote": p.get("Cote", ""), "but": ""}.items()})
+            for p in asts:
+                writer.writerow({k: format_csv(v) for k, v in {"date": today, "vague": wave_label, "joueur": p["Joueur"], "type": "ASSIST", "score": p.get("Proba", 0), "cote": p.get("Cote", ""), "but": ""}.items()})
+    # CSV Logs (Points désactivés)
+    except Exception as e:
+        logger.error(f"Error writing to picks_log.csv: {e}")
+
+    # Players CSV
+    pl_exists = os.path.exists(players_log_path)
+    try:
+        with open(players_log_path, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['date', 'vague', 'joueur', 'score_but', 'score_ast'])
+            if not pl_exists:
+                writer.writeheader()
+            for p in all_players:
+                writer.writerow({k: format_csv(v) for k, v in {"date": today, "vague": wave_label, "joueur": p["Joueur"], "score_but": p["Score_But"], "score_ast": p["Score_Assist"]}.items()})
+    except Exception as e:
+        logger.error(f"Error writing to players_log.csv: {e}")
