@@ -3,6 +3,7 @@ import requests
 import logging
 from datetime import datetime
 from typing import Optional, Any, Dict, List, Callable
+from functools import wraps
 
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Application, CallbackQueryHandler
