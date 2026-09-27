@@ -52,43 +52,66 @@ async def api_get(session: aiohttp.ClientSession, url: str, retries: int = 5) ->
                 await asyncio.sleep(2)
         return None
 
-async def fetch_all(session: aiohttp.ClientSession, endpoint: str, exp: str = None, limit: int = 100) -> List[Dict]:
-    """Récupère une ressource paginée de l'API NHL Stats."""
-    exp_str = exp or f"seasonId={cfg.api.season_id} and gameTypeId={cfg.api.game_type}"
-    url_base = f"{BASE}/{endpoint}?limit={limit}&cayenneExp={exp_str}"
-    
+async def _fetch_all_page(session: aiohttp.ClientSession, endpoint: str, exp: str, limit: int = 100) -> List[Dict]:
+    url_base = f"{BASE}/{endpoint}?limit={limit}&cayenneExp={exp}"
     first_data = await api_get(session, f"{url_base}&start=0")
-    if not first_data or not first_data.get('data'):
-        return []
-    
+    if not first_data or not first_data.get('data'): return []
     total = first_data.get('total', 0)
     all_data = first_data['data']
-    
-    if total <= limit:
-        return all_data
-        
+    if total <= limit: return all_data
     tasks = []
     for start in range(limit, total, limit):
         u = f"{url_base}&start={start}"
         tasks.append(api_get(session, u))
-        
     results = await asyncio.gather(*tasks)
     for res in results:
-        if res and res.get('data'):
-            all_data.extend(res['data'])
-            
+        if res and res.get('data'): all_data.extend(res['data'])
     return all_data
+
+async def fetch_all(session: aiohttp.ClientSession, endpoint: str, exp: str = None, limit: int = 100) -> List[Dict]:
+    """Récupère une ressource paginée de l'API NHL Stats avec fallback automatique."""
+    exp_str = exp or f"seasonId={cfg.api.season_id} and gameTypeId={cfg.api.game_type}"
+    current_data = await _fetch_all_page(session, endpoint, exp_str, limit)
+    
+    fallback = getattr(cfg.api, 'fallback_season_id', None)
+    if fallback and not exp:
+        exp_fb = f"seasonId={fallback} and gameTypeId={cfg.api.game_type}"
+        fb_data = await _fetch_all_page(session, endpoint, exp_fb, limit)
+        
+        if fb_data and len(fb_data) > 0:
+            first_row = fb_data[0]
+            if 'playerId' in first_row: pk = 'playerId'
+            elif 'teamId' in first_row: pk = 'teamId'
+            else: pk = None
+            
+            if pk:
+                current_pks = {r[pk] for r in current_data}
+                for r in fb_data:
+                    if r[pk] not in current_pks:
+                        current_data.append(r)
+    return current_data
 
 async def get_last_n_game_ids(session: aiohttp.ClientSession, team_abbr: str, n: int = 10) -> List[str]:
     url = f"{BASE_WEB}/v1/club-schedule-season/{team_abbr}/{cfg.api.season_id}"
     data = await api_get(session, url)
-    if not data: return []
-    games = data.get('games', [])
-    # En mode playoff, on accepte les types 2 (Saison) et 3 (Playoffs) pour assurer la continuité des stats L10
+    games = data.get('games', []) if data else []
+    
     allowed_types = [2, 3] if cfg.api.mode == "playoff" else [2]
     finished = [g for g in games if g.get('gameState') == 'OFF' and g.get('gameType') in allowed_types]
     finished.sort(key=lambda g: g.get('gameDate', ''), reverse=True)
-    return [str(g['id']) for g in finished[:n]]
+    ids = [str(g['id']) for g in finished[:n]]
+    
+    fallback = getattr(cfg.api, 'fallback_season_id', None)
+    if len(ids) < n and fallback:
+        url_fb = f"{BASE_WEB}/v1/club-schedule-season/{team_abbr}/{fallback}"
+        data_fb = await api_get(session, url_fb)
+        games_fb = data_fb.get('games', []) if data_fb else []
+        finished_fb = [g for g in games_fb if g.get('gameState') == 'OFF' and g.get('gameType') in allowed_types]
+        finished_fb.sort(key=lambda g: g.get('gameDate', ''), reverse=True)
+        needed = n - len(ids)
+        ids.extend([str(g['id']) for g in finished_fb[:needed]])
+        
+    return ids
 
 # --- Building CSVs Async ---
 

@@ -56,6 +56,7 @@ decimal_separator = ","
 
 [api]
 mode = "regular"        # "regular" ou "playoff"
-season_id = "20252026"
+season_id = "20262027"
+fallback_season_id = "20252026"
 game_type = "2"         # 2 = saison régulière, 3 = playoffs
 semaphore_limit = 20
