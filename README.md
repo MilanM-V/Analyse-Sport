@@ -209,3 +209,8 @@ Ce projet est sous licence MIT Ã¢Â€Â“ voir le fichier [LICENSE](LICENSE) pour pl
 ## Résultats du Backtest (2023-2025)
 L'algorithme NHL a été testé avec l'API The-Odds-API sur plus de 5000 paris virtuels. ROI Global validé en Out-of-Sample: **+37.9%**. Les Assists performent à +54.5% de ROI.
 
+
+
+### Update 2026-09-28 - Cold Start NHL
+- Passage de `season_id` a `20262027` dans `settings.toml`.
+- Ajout d'une logique de `fallback_season_id` (`20252026`) dans `fetcher.py` pour gerer le probleme du 'Cold Start' lors des premiers matchs de la saison. Les donnees manquantes de la nouvelle saison seront automatiquement completees par les stats de la saison precedente.

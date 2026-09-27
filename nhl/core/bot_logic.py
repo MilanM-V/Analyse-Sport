@@ -239,14 +239,14 @@ class NhlBot(BaseSportBot):
 
             for m in self.matches_du_jour:
                 match_id = m['id']
-                if match_id in self.matchs_traites:
+                if match_id in self.matchs_envoyes:
                     continue
 
                 logger.info(f"   Vérification compo : {m['home']} - {m['away']}...")
                 compo = scraper.get_lineups(match_id, m['home'], m['away'])
 
                 if isinstance(compo, dict):
-                    logger.info("    COMPO TROUVÉE ! Mise en mémoire.")
+                    logger.info("    COMPO TROUVÉE (ou mise à jour) ! Mise en mémoire.")
                     self.compos_en_memoire[match_id] = {"match_info": m, "compo": compo}
                     self.matchs_traites.add(match_id)
                 else:
