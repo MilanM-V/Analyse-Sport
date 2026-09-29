@@ -328,7 +328,19 @@ async def build_team_stats(session: aiohttp.ClientSession, all_teams: List[str],
         })
 
     df = pd.DataFrame(rows)
-    df.to_csv(os.path.join(FOLDER_NAME, 'team.csv'), index=False, encoding='utf-8-sig')
+    
+    # Protection début de saison : ne pas écraser un fichier existant avec des données vides
+    output_path = os.path.join(FOLDER_NAME, 'team.csv')
+    if len(df) < 10 and os.path.exists(output_path):
+        existing_lines = sum(1 for _ in open(output_path, encoding='utf-8-sig'))
+        if existing_lines > len(df):
+            logger.warning(
+                f"  ⚠️ team.csv : nouvelles données ({len(df)} équipes) < existant ({existing_lines} lignes). "
+                f"Début de saison probable — fichier existant conservé."
+            )
+            return pd.read_csv(output_path, encoding='utf-8-sig')
+    
+    df.to_csv(output_path, index=False, encoding='utf-8-sig')
     return df
 
 async def prefetch_pbp_and_boxscores(session: aiohttp.ClientSession, all_teams: List[str]) -> Dict[str, List[str]]:
@@ -546,7 +558,19 @@ def compute_last10_stats(all_teams: List[str], game_ids_cache: Dict[str, List[st
     df = pd.DataFrame(rows)
     df['Team'] = df['Team'].replace('', pd.NA)
     df = df.dropna(subset=['Team'])
-    df.to_csv(os.path.join(FOLDER_NAME, 'last 10.csv'), index=False, encoding='utf-8-sig')
+    
+    # Protection début de saison : ne pas écraser un fichier existant avec des données vides
+    output_path = os.path.join(FOLDER_NAME, 'last 10.csv')
+    if len(df) < 30 and os.path.exists(output_path):
+        existing_lines = sum(1 for _ in open(output_path, encoding='utf-8-sig'))
+        if existing_lines > len(df):
+            logger.warning(
+                f"  ⚠️ last 10.csv : nouvelles données ({len(df)} joueurs) < existant ({existing_lines} lignes). "
+                f"Début de saison probable — fichier existant conservé."
+            )
+            return pd.read_csv(output_path, encoding='utf-8-sig')
+    
+    df.to_csv(output_path, index=False, encoding='utf-8-sig')
     return df
 
 async def main_async():

@@ -119,7 +119,8 @@ class NhlBot(BaseSportBot):
 
     def _check_csv_integrity(self) -> Tuple[bool, List[str]]:
         """
-        Checks if all required CSV files exist and have minimum required lines.
+        Checks if all required CSV files exist, have minimum required lines,
+        and are not older than 7 days (stale data detection).
 
         Returns:
             A tuple (is_ok, list_of_errors).
@@ -128,6 +129,8 @@ class NhlBot(BaseSportBot):
             "last 10.csv": 50, "Player Season Totals.csv": 200, "team.csv": 10,
             "power play.csv": 50, "goalies.csv": 30, "on_ice.csv": 50, "pk.csv": 10,
         }
+        max_age_days = 7  # Fichiers plus vieux que 7 jours → forcer un re-fetch
+        now_ts = datetime.now().timestamp()
         ko = []
         for filename, min_lines in required_csv.items():
             path = f"./stats/{filename}"
@@ -139,6 +142,11 @@ class NhlBot(BaseSportBot):
                     nb = sum(1 for _ in f)
                 if nb < min_lines:
                     ko.append(f"{filename} ({nb} lignes < {min_lines} attendues)")
+                    continue
+                # Vérification de l'âge du fichier
+                file_age_days = (now_ts - os.path.getmtime(path)) / 86400
+                if file_age_days > max_age_days:
+                    ko.append(f"{filename} (périmé : {file_age_days:.0f} jours)")
             except Exception as e:
                 ko.append(f"{filename} (erreur : {e})")
         return (len(ko) == 0, ko)
@@ -271,7 +279,8 @@ class NhlBot(BaseSportBot):
         if not self.compos_en_memoire:
             return
         
-        ready_ids = list(self.compos_en_memoire.keys())
+        # Ne pas renvoyer les matchs déjà envoyés par evaluate_waves()
+        ready_ids = [mid for mid in self.compos_en_memoire if mid not in self.matchs_envoyes]
         if ready_ids:
             wave_label = f"PREMIER JET 17H - COMPOS PROBABLES ({len(ready_ids)} matchs)"
             logger.info(f"   Early Pass {wave_label}   ENVOI !")
@@ -363,6 +372,13 @@ class NhlBot(BaseSportBot):
                                 compos_brutes.append(player)
 
         compos_filtrees = [p for p in compos_brutes if p in ds.form_data]
+        
+        # Diagnostic : combien de joueurs passent chaque étape du filtre
+        logger.info(f"  Joueurs compos bruts: {len(compos_brutes)} → filtrés (dans form_data): {len(compos_filtrees)}")
+        if len(compos_brutes) > 0 and len(compos_filtrees) == 0:
+            logger.warning("  ⚠️ AUCUN joueur RotoWire reconnu dans form_data (last 10.csv). "
+                           "Données potentiellement périmées ou début de saison.")
+        
         home_teams = [m[0] for m in matches_soir]
         opponents = {t1: t2 for t1, t2 in matches_soir}
         opponents.update({t2: t1 for t1, t2 in matches_soir})
@@ -446,6 +462,9 @@ class NhlBot(BaseSportBot):
                 "p_form": p_form, "p_v5": v5_p, "adv_stats": adv_stats,
                 "goalie_sv_pct": goalie_sv_pct
             })
+
+        # Diagnostic : combien de joueurs passent les filtres de pré-sélection
+        logger.info(f"  Évalués: {len(all_evaluated_players)} | Candidats Buteur: {len(candidates_but)} | Candidats Passeur: {len(candidates_ast)}")
 
         # Passe 2 : Récupération des cotes The Odds API AVANT prédiction ML
         # On fetch les cotes pour tous les joueurs évalués pour enrichir le log
