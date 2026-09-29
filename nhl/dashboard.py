@@ -8,7 +8,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from nhl.config.settings import cfg
-from nhl.core.market_filter import evaluate_player_markets, load_dynamic_probas
+from nhl.core.market_filter import evaluate_player_markets
 from nhl.core.kelly import calculate_quarter_kelly, CATEGORY_CAPS
 
 # Compatibilité r/w TOML
@@ -84,8 +84,7 @@ def load_and_simulate(unit_value_euro: float, mode_filter: str = "all"):
     avg_pts = round(avg_pts, 2)
 
     results = []
-    
-    probas = load_dynamic_probas()
+    probas = {}
 
     # Moteur V18 manuel (Backtesting)
     for idx, row in df.iterrows():
@@ -122,8 +121,8 @@ def load_and_simulate(unit_value_euro: float, mode_filter: str = "all"):
             "Position": "F"  # Position is usually not fully available in player hist, assuming F
         }
         adv_stats = {"GA_G": opp_ga}
-        
-        cat_but, cat_ast, cat_pts = evaluate_player_markets(joueur, p_form, v5_p, adv_stats, is_home)
+        cat_but, cat_ast = evaluate_player_markets(joueur, p_form, v5_p, adv_stats, is_home)
+        cat_pts = None
 
         # Helper pour générer un résultat
         def add_result(cat_name, cote_dict, cf_min, prob_key, res_won):

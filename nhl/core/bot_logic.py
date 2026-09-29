@@ -379,9 +379,14 @@ class NhlBot(BaseSportBot):
             logger.warning("  ⚠️ AUCUN joueur RotoWire reconnu dans form_data (last 10.csv). "
                            "Données potentiellement périmées ou début de saison.")
         
-        home_teams = [m[0] for m in matches_soir]
-        opponents = {t1: t2 for t1, t2 in matches_soir}
-        opponents.update({t2: t1 for t1, t2 in matches_soir})
+        home_teams = [loaders.clean_team_name(m[0]) for m in matches_soir]
+        
+        opponents = {}
+        for t1, t2 in matches_soir:
+            t1_abbr = loaders.clean_team_name(t1)
+            t2_abbr = loaders.clean_team_name(t2)
+            opponents[t1_abbr] = t2_abbr
+            opponents[t2_abbr] = t1_abbr
 
         b2b_teams = [t for t in loaders.get_b2b_teams('./stats/match.csv', TODAY) if t in opponents]
         pp1_players = set(loaders.get_auto_pp1_players(ds.form_data, ds.pp_stats, list(opponents.keys())))
