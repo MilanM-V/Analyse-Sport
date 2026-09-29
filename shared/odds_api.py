@@ -112,9 +112,12 @@ class OddsAPIClient:
             # 2. Récupérer les cotes pour chaque event ciblé
             logger.info(f"Appel Odds API sur {len(target_events)} matchs ciblés pour {len(players_map)} joueurs.")
             
-            # L'utilisateur ne parie QUE sur Winamax
+            # L'utilisateur parie sur Winamax, mais on autorise Pinnacle/DraftKings comme cotes de repli
             target_bookmakers = {
-                "winamax": "Winamax"
+                "winamax": "Winamax",
+                "pinnacle": "Pinnacle",
+                "draftkings": "DraftKings",
+                "fanduel": "FanDuel"
             }
             
             for event_id in target_events:

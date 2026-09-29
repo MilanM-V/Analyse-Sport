@@ -577,7 +577,12 @@ class NhlBot(BaseSportBot):
             
             # --- EXPORT DASHBOARD ---
             try:
-                import dashboard.exporter as dashboard_exporter
+                import importlib.util
+                export_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard", "exporter.py")
+                spec = importlib.util.spec_from_file_location("dashboard_exporter", export_path)
+                dashboard_exporter = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(dashboard_exporter)
+                
                 dashboard_exporter.export_data()
                 dashboard_exporter.git_commit_and_push()
             except Exception as e:
