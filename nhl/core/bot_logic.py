@@ -317,7 +317,7 @@ class NhlBot(BaseSportBot):
 
     def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
         """Performs analysis on a wave of matches and sends results."""
-        from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets
+        from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets, get_adaptive_ev_threshold
         from nhl.core.kelly import is_cote_valid, apply_kelly_to_picks
         from nhl.core.formatter import format_telegram_v18
         from nhl.core.logger_csv import log_picks_to_db, log_picks_to_csv
@@ -516,7 +516,9 @@ class NhlBot(BaseSportBot):
                     
                     # Filtre strict Buteur (Phase 4)
                     ev_but = (proba_but * cote - 1.0) if cote else 0.0
-                    if proba_but >= 0.60 or ev_but >= 0.30:
+                    min_ev = get_adaptive_ev_threshold(cote) if cote else 0.05
+                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
+                    if proba_but >= 0.60 or ev_but >= min_ev:
                         for ep in all_evaluated_players:
                             if ep["Joueur"] == p["Joueur"]: ep["Score_But"] = proba_but
 
@@ -543,7 +545,9 @@ class NhlBot(BaseSportBot):
 
                     # Filtre strict Passeur (Phase 4)
                     ev_ast = (proba_ast * cote - 1.0) if cote else 0.0
-                    if proba_ast >= 0.60 or ev_ast >= 0.30:
+                    min_ev_ast = get_adaptive_ev_threshold(cote) if cote else 0.05
+                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
+                    if proba_ast >= 0.60 or ev_ast >= min_ev_ast:
                         for ep in all_evaluated_players:
                             if ep["Joueur"] == p["Joueur"]: ep["Score_Assist"] = proba_ast
 
@@ -578,7 +582,8 @@ class NhlBot(BaseSportBot):
             # --- EXPORT DASHBOARD ---
             try:
                 import importlib.util
-                export_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard", "exporter.py")
+                # bot_logic.py is in nhl/core/ -> 3 dirnames to get to root
+                export_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dashboard", "exporter.py")
                 spec = importlib.util.spec_from_file_location("dashboard_exporter", export_path)
                 dashboard_exporter = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(dashboard_exporter)
