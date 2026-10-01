@@ -119,7 +119,8 @@ class NhlBot(BaseSportBot):
 
     def _check_csv_integrity(self) -> Tuple[bool, List[str]]:
         """
-        Checks if all required CSV files exist and have minimum required lines.
+        Checks if all required CSV files exist, have minimum required lines,
+        and are not older than 7 days (stale data detection).
 
         Returns:
             A tuple (is_ok, list_of_errors).
@@ -128,6 +129,8 @@ class NhlBot(BaseSportBot):
             "last 10.csv": 50, "Player Season Totals.csv": 200, "team.csv": 10,
             "power play.csv": 50, "goalies.csv": 30, "on_ice.csv": 50, "pk.csv": 10,
         }
+        max_age_days = 7  # Fichiers plus vieux que 7 jours → forcer un re-fetch
+        now_ts = datetime.now().timestamp()
         ko = []
         for filename, min_lines in required_csv.items():
             path = f"./stats/{filename}"
@@ -139,6 +142,11 @@ class NhlBot(BaseSportBot):
                     nb = sum(1 for _ in f)
                 if nb < min_lines:
                     ko.append(f"{filename} ({nb} lignes < {min_lines} attendues)")
+                    continue
+                # Vérification de l'âge du fichier
+                file_age_days = (now_ts - os.path.getmtime(path)) / 86400
+                if file_age_days > max_age_days:
+                    ko.append(f"{filename} (périmé : {file_age_days:.0f} jours)")
             except Exception as e:
                 ko.append(f"{filename} (erreur : {e})")
         return (len(ko) == 0, ko)
@@ -252,12 +260,8 @@ class NhlBot(BaseSportBot):
                 else:
                     logger.info(f"   {compo} — On réessaiera au prochain cycle.")
 
-            # EARLY PASS at 17:00
-            now = datetime.now()
-            if now.hour == 17 and now.minute <= 30 and getattr(self, '_early_pass_done_date', None) != now.date():
-                logger.info("Déclenchement du Early Pass (17h00).")
-                self.evaluate_early_pass()
-                self._early_pass_done_date = now.date()
+            # L'Early Pass à 17:00 a été retiré à la demande de l'utilisateur.
+            # self.evaluate_waves(self.matches_du_jour) continue de gérer les scans normaux.
 
             self.evaluate_waves(self.matches_du_jour)
         except Exception as e:
@@ -271,7 +275,8 @@ class NhlBot(BaseSportBot):
         if not self.compos_en_memoire:
             return
         
-        ready_ids = list(self.compos_en_memoire.keys())
+        # Ne pas renvoyer les matchs déjà envoyés par evaluate_waves()
+        ready_ids = [mid for mid in self.compos_en_memoire if mid not in self.matchs_envoyes]
         if ready_ids:
             wave_label = f"PREMIER JET 17H - COMPOS PROBABLES ({len(ready_ids)} matchs)"
             logger.info(f"   Early Pass {wave_label}   ENVOI !")
@@ -308,7 +313,7 @@ class NhlBot(BaseSportBot):
 
     def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
         """Performs analysis on a wave of matches and sends results."""
-        from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets
+        from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets, get_adaptive_ev_threshold
         from nhl.core.kelly import is_cote_valid, apply_kelly_to_picks
         from nhl.core.formatter import format_telegram_v18
         from nhl.core.logger_csv import log_picks_to_db, log_picks_to_csv
@@ -363,9 +368,21 @@ class NhlBot(BaseSportBot):
                                 compos_brutes.append(player)
 
         compos_filtrees = [p for p in compos_brutes if p in ds.form_data]
-        home_teams = [m[0] for m in matches_soir]
-        opponents = {t1: t2 for t1, t2 in matches_soir}
-        opponents.update({t2: t1 for t1, t2 in matches_soir})
+        
+        # Diagnostic : combien de joueurs passent chaque étape du filtre
+        logger.info(f"  Joueurs compos bruts: {len(compos_brutes)} → filtrés (dans form_data): {len(compos_filtrees)}")
+        if len(compos_brutes) > 0 and len(compos_filtrees) == 0:
+            logger.warning("  ⚠️ AUCUN joueur RotoWire reconnu dans form_data (last 10.csv). "
+                           "Données potentiellement périmées ou début de saison.")
+        
+        home_teams = [loaders.clean_team_name(m[0]) for m in matches_soir]
+        
+        opponents = {}
+        for t1, t2 in matches_soir:
+            t1_abbr = loaders.clean_team_name(t1)
+            t2_abbr = loaders.clean_team_name(t2)
+            opponents[t1_abbr] = t2_abbr
+            opponents[t2_abbr] = t1_abbr
 
         b2b_teams = [t for t in loaders.get_b2b_teams('./stats/match.csv', TODAY) if t in opponents]
         pp1_players = set(loaders.get_auto_pp1_players(ds.form_data, ds.pp_stats, list(opponents.keys())))
@@ -447,6 +464,9 @@ class NhlBot(BaseSportBot):
                 "goalie_sv_pct": goalie_sv_pct
             })
 
+        # Diagnostic : combien de joueurs passent les filtres de pré-sélection
+        logger.info(f"  Évalués: {len(all_evaluated_players)} | Candidats Buteur: {len(candidates_but)} | Candidats Passeur: {len(candidates_ast)}")
+
         # Passe 2 : Récupération des cotes The Odds API AVANT prédiction ML
         # On fetch les cotes pour tous les joueurs évalués pour enrichir le log
         players_to_fetch = {r["Joueur"]: r["Equipe"] for r in all_evaluated_players}
@@ -492,7 +512,9 @@ class NhlBot(BaseSportBot):
                     
                     # Filtre strict Buteur (Phase 4)
                     ev_but = (proba_but * cote - 1.0) if cote else 0.0
-                    if proba_but >= 0.60 or ev_but >= 0.30:
+                    min_ev = get_adaptive_ev_threshold(cote) if cote else 0.05
+                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
+                    if proba_but >= 0.60 or ev_but >= min_ev:
                         for ep in all_evaluated_players:
                             if ep["Joueur"] == p["Joueur"]: ep["Score_But"] = proba_but
 
@@ -519,7 +541,9 @@ class NhlBot(BaseSportBot):
 
                     # Filtre strict Passeur (Phase 4)
                     ev_ast = (proba_ast * cote - 1.0) if cote else 0.0
-                    if proba_ast >= 0.60 or ev_ast >= 0.30:
+                    min_ev_ast = get_adaptive_ev_threshold(cote) if cote else 0.05
+                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
+                    if proba_ast >= 0.60 or ev_ast >= min_ev_ast:
                         for ep in all_evaluated_players:
                             if ep["Joueur"] == p["Joueur"]: ep["Score_Assist"] = proba_ast
 
@@ -553,7 +577,13 @@ class NhlBot(BaseSportBot):
             
             # --- EXPORT DASHBOARD ---
             try:
-                import dashboard.exporter as dashboard_exporter
+                import importlib.util
+                # bot_logic.py is in nhl/core/ -> 3 dirnames to get to root
+                export_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dashboard", "exporter.py")
+                spec = importlib.util.spec_from_file_location("dashboard_exporter", export_path)
+                dashboard_exporter = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(dashboard_exporter)
+                
                 dashboard_exporter.export_data()
                 dashboard_exporter.git_commit_and_push()
             except Exception as e:

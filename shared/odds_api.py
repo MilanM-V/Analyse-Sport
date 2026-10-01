@@ -112,9 +112,12 @@ class OddsAPIClient:
             # 2. Récupérer les cotes pour chaque event ciblé
             logger.info(f"Appel Odds API sur {len(target_events)} matchs ciblés pour {len(players_map)} joueurs.")
             
-            # L'utilisateur ne parie QUE sur Winamax
+            # L'utilisateur parie sur Winamax, mais on autorise Pinnacle/DraftKings comme cotes de repli
             target_bookmakers = {
-                "winamax": "Winamax"
+                "winamax": "Winamax",
+                "pinnacle": "Pinnacle",
+                "draftkings": "DraftKings",
+                "fanduel": "FanDuel"
             }
             
             for event_id in target_events:
@@ -159,8 +162,13 @@ class OddsAPIClient:
 
                                         price = outcome.get('price', 0)
                                         
-                                        # Seulement l'Over à 0.5
-                                        if outcome.get('name', '').lower() == 'over' and outcome.get('point', 0.5) == 0.5:
+                                        # Buteurs = "Yes", Passeurs = "Over" 0.5
+                                        name_low = outcome.get('name', '').lower()
+                                        is_goal_market = (market == 'player_goal_scorer_anytime')
+                                        is_over_05 = (name_low == 'over' and outcome.get('point', 0.5) == 0.5)
+                                        is_yes = (name_low == 'yes')
+                                        
+                                        if (is_goal_market and is_yes) or (not is_goal_market and is_over_05):
                                             # Faire correspondre le joueur
                                             for p_name in players_map.keys():
                                                 # Logique de matching flexible

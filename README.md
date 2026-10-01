@@ -1,6 +1,6 @@
-# BetEngine â Plateforme Multi-Sport de Paris Quantitatifs
+# BetEngine — Plateforme Multi-Sport de Paris Quantitatifs
 
-> Bot autonome de paris sportifs basÃ© sur l'Expected Value (EV > 5%), le Kelly Criterion, et les probabilitÃ©s bayÃ©siennes. Multi-sport, modulaire, dÃ©ployÃ© sur VPS avec supervision intelligente.
+> Bot autonome de paris sportifs basé sur l'Expected Value (EV > 5%), le Kelly Criterion, et les probabilités bayésiennes. Multi-sport, modulaire, déployé sur VPS avec supervision intelligente.
 
 ---
 
@@ -74,9 +74,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **PrÃ©requis** : Python 3.12+, Brave Browser (Selenium).
+> **Prérequis** : Python 3.12+, Brave Browser (Selenium).
 
-CrÃ©er un fichier `.env` Ã  la racine :
+Créer un fichier .env à la racine :
 ```env
 TELEGRAM_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
@@ -104,13 +104,13 @@ python mlb/main_bot.py
 ### VPS (Production)
 
 ```bash
-# DÃ©ployer via git push puis sur le VPS :
+# Déployer via git push puis sur le VPS :
 systemctl daemon-reload
 systemctl restart watchdog-betengine
 
-# Le watchdog gÃ¨re automatiquement :
-# - DÃ©marrage de tous les bots sport configurÃ©s
-# - RedÃ©marrage ciblÃ© aprÃ¨s chaque git push (par dossier modifiÃ©)
+# Le watchdog gère automatiquement :
+# - Démarrage de tous les bots sport configurés
+# - Redémarrage ciblé après chaque git push (par dossier modifié)
 # - Restart auto si un bot crash
 ```
 
@@ -141,12 +141,12 @@ sudo systemctl daemon-reload
 sudo systemctl enable watchdog-betengine
 sudo systemctl start watchdog-betengine
 
-# VÃ©rifier
+# Vérifier
 sudo systemctl status watchdog-betengine
 journalctl -u watchdog-betengine -f
 ```
 
-> **Important** : Le watchdog lance et supervise tous les bots. Tu n'as plus besoin de services systemd sÃ©parÃ©s pour chaque bot. Un seul service (`watchdog-betengine`) suffit.
+> **Important** : Le watchdog lance et supervise tous les bots. Tu n'as plus besoin de services systemd séparés pour chaque bot. Un seul service (`watchdog-betengine`) suffit.
 
 ---
 
@@ -154,14 +154,14 @@ journalctl -u watchdog-betengine -f
 
 | Document | Contenu |
 |----------|---------|
-| [PROJECT_VISION.md](PROJECT_VISION.md) | Vision complÃ¨te, stratÃ©gies par sport, architecture cible, roadmap |
-| [VPS_WATCHDOG.md](VPS_WATCHDOG.md) | SpÃ©cification technique du watchdog VPS |
+| [PROJECT_VISION.md](PROJECT_VISION.md) | Vision complète, stratégies par sport, architecture cible, roadmap |
+| [VPS_WATCHDOG.md](VPS_WATCHDOG.md) | Spécification technique du watchdog VPS |
 
 ---
 
 ## Licence
 
-Ce projet est sous licence MIT â voir le fichier [LICENSE](LICENSE) pour plus de dÃ©tails.
+Ce projet est sous licence MIT – voir le fichier [LICENSE](LICENSE) pour plus de détails.
 
 ## Mises à jour récentes
 - Nettoyage du code et corrections Flake8.
@@ -184,7 +184,7 @@ Ce projet est sous licence MIT â voir le fichier [LICENSE](LICENSE) pour pl
 - Updated test fixtures to use correct monkeypatch targets.
 
 ## 2026-09-07 - V20: ML Refactoring & Multi-Boosting Ensemble
-- **P1/P2**: Correction data leakage â holdout temporel strict + scale_pos_weight dynamique + calibration isotonique.
+- **P1/P2**: Correction data leakage — holdout temporel strict + scale_pos_weight dynamique + calibration isotonique.
 - **P3/P6**: Scripts d'analyse statistique avancee (clv_analysis.py, significance_tests.py).
 - **P4**: Walk-Forward Backtest 100% Out-of-Sample jour par jour avec re-entrainement periodique.
 - **P5**: Features cles implied_prob et goalie_weakness.
@@ -206,8 +206,8 @@ Ce projet est sous licence MIT â voir le fichier [LICENSE](LICENSE) pour pl
 - **Modèle Empirique Winamax sur 7 Saisons (`simulate_historical_odds.py`)** : Calibrage par régression sur les 235 cotes réelles de `nhl/bot_database.db` (MAE 0.40 buts, 0.15 passes). Bilan sur 19 167 paris : **+2 246.34 U (+2 246.34 €)** de profit net cumulé (**+13.2% ROI global net**, soit **+320.91 U / saison**).
 
 
-## R�sultats du Backtest (2023-2025)
-L'algorithme NHL a �t� test� avec l'API The-Odds-API sur plus de 5000 paris virtuels. ROI Global valid� en Out-of-Sample: **+37.9%**. Les Assists performent � +54.5% de ROI.
+## Résultats du Backtest (2023-2025)
+L'algorithme NHL a été testé avec l'API The-Odds-API sur plus de 5000 paris virtuels. ROI Global validé en Out-of-Sample: **+37.9%**. Les Assists performent à +54.5% de ROI.
 
 
 

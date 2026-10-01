@@ -87,10 +87,10 @@ def calculate_quarter_kelly(proba: float, cote: Optional[float], categorie: str 
 
 def is_cote_valid(pick: dict, cote_min: float) -> bool:
     if not pick.get("Cote") or pick["Cote"] <= 1.05:
-        logger.debug(f"Pari Rejeté (Absence de Cote) : {pick['Joueur']}")
+        logger.info(f"Pari Rejeté (Absence de Cote) : {pick['Joueur']}")
         return False
     if cote_min > 0 and pick["Cote"] < cote_min:
-        logger.debug(f"Pari Rejeté (Cote {pick['Cote']:.2f} < min {cote_min:.2f}) : {pick['Joueur']}")
+        logger.info(f"Pari Rejeté (Cote {pick['Cote']:.2f} < min {cote_min:.2f}) : {pick['Joueur']}")
         return False
         
     ev = (pick["Proba"] * pick["Cote"]) - 1.0
@@ -104,7 +104,7 @@ def is_cote_valid(pick: dict, cote_min: float) -> bool:
         min_ev = 0.10   # 10% pour compenser la forte variance sur les grosses cotes
 
     if ev < min_ev:
-        logger.debug(f"Pari Rejeté (EV {ev*100:.1f}% < requis {min_ev*100:.0f}%) : {pick['Joueur']} @ {cote:.2f}")
+        logger.info(f"Pari Rejeté (EV {ev*100:.1f}% < requis {min_ev*100:.0f}%) : {pick['Joueur']} @ {cote:.2f} (Proba: {pick['Proba']:.3f})")
         return False
     return True
 

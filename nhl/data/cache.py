@@ -77,7 +77,8 @@ def cleanup_pbp_cache():
     for f in os.listdir(CACHE_DIR):
         if (f.startswith('pbp_cache_') or f.startswith('box_cache_')) and f.endswith('.json'):
             fpath = os.path.join(CACHE_DIR, f)
-            if now - os.path.getmtime(fpath) > 2 * 86400:
+            # 14 jours de cache pour supporter le fallback début de saison
+            if now - os.path.getmtime(fpath) > 14 * 86400:
                 os.remove(fpath)
                 count += 1
     if count: logger.info(f"  Cache PBP: {count} fichiers supprimés")
