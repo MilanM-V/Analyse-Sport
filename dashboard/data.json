@@ -1,103 +1,14 @@
 {
-  "last_updated": "2026-10-01T18:16:42.010824+00:00",
+  "last_updated": "2026-10-01T19:16:47.033445+00:00",
   "kpis": {
-    "current_balance": 200.0,
-    "total_profit": 100.0,
-    "winrate": 100.0,
+    "current_balance": 100.0,
+    "total_profit": 0,
+    "winrate": 0.0,
     "roi": 0.0,
-    "total_bets": 1,
-    "pending_exposure": 15.0
+    "total_bets": 0,
+    "pending_exposure": 0
   },
-  "pending_bets": [
-    {
-      "id": 5,
-      "timestamp": "2026-05-01T22:44:20.504635",
-      "sport": "mlb",
-      "pick_id": null,
-      "player": "Jacob Misiorowski",
-      "market": "STRIKEOUTS",
-      "cote": 3.95,
-      "mise": 3.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 4,
-      "timestamp": "2026-05-01T22:44:20.503043",
-      "sport": "mlb",
-      "pick_id": null,
-      "player": "Mitch Keller",
-      "market": "STRIKEOUTS",
-      "cote": 4.0,
-      "mise": 3.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 3,
-      "timestamp": "2026-05-01T22:44:20.501198",
-      "sport": "mlb",
-      "pick_id": null,
-      "player": "Brady Singer",
-      "market": "STRIKEOUTS",
-      "cote": 3.0,
-      "mise": 3.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 2,
-      "timestamp": "2026-05-01T22:44:20.499301",
-      "sport": "mlb",
-      "pick_id": null,
-      "player": "Jack Flaherty",
-      "market": "STRIKEOUTS",
-      "cote": 3.3,
-      "mise": 3.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 1,
-      "timestamp": "2026-05-01T22:44:20.496771",
-      "sport": "mlb",
-      "pick_id": null,
-      "player": "MacKenzie Gore",
-      "market": "STRIKEOUTS",
-      "cote": 4.3,
-      "mise": 3.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    }
-  ],
-  "history": [
-    {
-      "id": 6,
-      "timestamp": "2026-09-12T15:56:39.272156",
-      "sport": "deposit",
-      "pick_id": null,
-      "player": "ADMIN",
-      "market": "DEPOSIT",
-      "cote": 1.0,
-      "mise": 0.0,
-      "gain": 100.0,
-      "solde_apres": 200.0,
-      "resolved": 1
-    }
-  ],
-  "evolution": [
-    {
-      "date": "2026-09-12T15:56:39.272156 00:00:00",
-      "balance": 100.0
-    },
-    {
-      "date": "2026-09-12T15:56:39.272156",
-      "balance": 200.0
-    }
-  ]
+  "pending_bets": [],
+  "history": [],
+  "evolution": []
 }
