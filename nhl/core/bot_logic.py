@@ -260,12 +260,8 @@ class NhlBot(BaseSportBot):
                 else:
                     logger.info(f"   {compo} — On réessaiera au prochain cycle.")
 
-            # EARLY PASS at 17:00
-            now = datetime.now()
-            if now.hour == 17 and now.minute <= 30 and getattr(self, '_early_pass_done_date', None) != now.date():
-                logger.info("Déclenchement du Early Pass (17h00).")
-                self.evaluate_early_pass()
-                self._early_pass_done_date = now.date()
+            # L'Early Pass à 17:00 a été retiré à la demande de l'utilisateur.
+            # self.evaluate_waves(self.matches_du_jour) continue de gérer les scans normaux.
 
             self.evaluate_waves(self.matches_du_jour)
         except Exception as e:

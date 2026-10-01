@@ -91,8 +91,11 @@ def format_telegram_v18(
 
         h_abbr = loaders.TEAM_MAPPING.get(m['home'], m['home'])
         a_abbr = loaders.TEAM_MAPPING.get(m['away'], m['away'])
+        
+        time_str = m.get('time', '')
+        time_display = f" ({time_str})" if time_str else ""
 
-        msg += f"<b>Match {t1_full} vs {t2_full} :</b>\n"
+        msg += f"<b>Match {t1_full} vs {t2_full}{time_display} :</b>\n"
 
         for emoji, label, picks_list in [
             ("\U0001f525", "Buteurs", buts), ("\U0001f170\ufe0f", "Passeurs", assists),
