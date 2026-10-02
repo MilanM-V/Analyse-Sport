@@ -1,14 +1,15 @@
 {
-  "last_updated": "2026-10-02T14:37:20.940409+00:00",
+  "last_updated": "2026-10-02T17:53:35.662734+00:00",
   "kpis": {
-    "current_balance": 100.0,
-    "total_profit": 0,
-    "winrate": 0.0,
-    "roi": 0.0,
-    "total_bets": 0,
-    "pending_exposure": 7.0
+    "current_balance": 98.85,
+    "total_profit": -1.15,
+    "winrate": 50.0,
+    "roi": -46.0,
+    "total_bets": 2,
+    "pending_exposure": 0
   },
-  "pending_bets": [
+  "pending_bets": [],
+  "history": [
     {
       "id": 7,
       "timestamp": "2026-10-01T21:22:17.335028",
@@ -18,9 +19,9 @@
       "market": "PASSEUR",
       "cote": 2.7,
       "mise": 0.5,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
+      "gain": 0.85,
+      "solde_apres": 100.85,
+      "resolved": 1
     },
     {
       "id": 6,
@@ -31,76 +32,23 @@
       "market": "PASSEUR",
       "cote": 3.3,
       "mise": 2.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 5,
-      "timestamp": "2026-10-01T21:22:17.329257",
-      "sport": "nhl",
-      "pick_id": 3,
-      "player": "Ryan Hartman",
-      "market": "BUTEUR",
-      "cote": 4.4,
-      "mise": 0.5,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 4,
-      "timestamp": "2026-10-01T21:21:51.811672",
-      "sport": "nhl",
-      "pick_id": 2,
-      "player": "Brock Boeser",
-      "market": "PASSEUR",
-      "cote": 2.7,
-      "mise": 0.5,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 3,
-      "timestamp": "2026-10-01T21:21:51.809822",
-      "sport": "nhl",
-      "pick_id": 1,
-      "player": "Jake DeBrusk",
-      "market": "PASSEUR",
-      "cote": 3.3,
-      "mise": 2.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 2,
-      "timestamp": "2026-10-01T21:21:51.807737",
-      "sport": "nhl",
-      "pick_id": 2,
-      "player": "Ryan Hartman",
-      "market": "BUTEUR",
-      "cote": 4.4,
-      "mise": 0.5,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    },
-    {
-      "id": 1,
-      "timestamp": "2026-10-01T21:21:51.805323",
-      "sport": "nhl",
-      "pick_id": 1,
-      "player": "Owen Power",
-      "market": "BUTEUR",
-      "cote": 10.5,
-      "mise": 1.0,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
+      "gain": -2.0,
+      "solde_apres": 98.85,
+      "resolved": 1
     }
   ],
-  "history": [],
-  "evolution": []
+  "evolution": [
+    {
+      "date": "2026-10-01T21:22:17.333095 00:00:00",
+      "balance": 100.0
+    },
+    {
+      "date": "2026-10-01T21:22:17.333095",
+      "balance": 98.0
+    },
+    {
+      "date": "2026-10-01T21:22:17.335028",
+      "balance": 98.85
+    }
+  ]
 }
