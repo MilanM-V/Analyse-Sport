@@ -1,14 +1,80 @@
 {
-  "last_updated": "2026-10-02T17:53:35.662734+00:00",
+  "last_updated": "2026-10-03T14:37:24.624706+00:00",
   "kpis": {
     "current_balance": 98.85,
     "total_profit": -1.15,
     "winrate": 50.0,
     "roi": -46.0,
     "total_bets": 2,
-    "pending_exposure": 0
+    "pending_exposure": 4.0
   },
-  "pending_bets": [],
+  "pending_bets": [
+    {
+      "id": 12,
+      "timestamp": "2026-10-03T16:37:24.537054",
+      "sport": "nhl",
+      "pick_id": 7,
+      "player": "Ryan Shea",
+      "market": "PASSEUR",
+      "cote": 3.5,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 11,
+      "timestamp": "2026-10-03T16:37:24.534866",
+      "sport": "nhl",
+      "pick_id": 6,
+      "player": "Kris Letang",
+      "market": "PASSEUR",
+      "cote": 3.5,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 10,
+      "timestamp": "2026-10-03T16:37:24.532801",
+      "sport": "nhl",
+      "pick_id": 5,
+      "player": "Easton Cowan",
+      "market": "PASSEUR",
+      "cote": 3.65,
+      "mise": 2.0,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 9,
+      "timestamp": "2026-10-03T16:37:24.530613",
+      "sport": "nhl",
+      "pick_id": 5,
+      "player": "Anders Lee",
+      "market": "BUTEUR",
+      "cote": 4.6,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 8,
+      "timestamp": "2026-10-03T16:37:24.527913",
+      "sport": "nhl",
+      "pick_id": 4,
+      "player": "Ryan Leonard",
+      "market": "BUTEUR",
+      "cote": 4.7,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    }
+  ],
   "history": [
     {
       "id": 7,
