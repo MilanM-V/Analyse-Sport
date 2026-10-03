@@ -1,14 +1,66 @@
 {
-  "last_updated": "2026-10-03T14:37:24.624706+00:00",
+  "last_updated": "2026-10-03T18:09:05.659109+00:00",
   "kpis": {
     "current_balance": 98.85,
     "total_profit": -1.15,
     "winrate": 50.0,
     "roi": -46.0,
     "total_bets": 2,
-    "pending_exposure": 4.0
+    "pending_exposure": 8.0
   },
   "pending_bets": [
+    {
+      "id": 16,
+      "timestamp": "2026-10-03T20:09:05.581327",
+      "sport": "nhl",
+      "pick_id": 11,
+      "player": "Liam Ohgren",
+      "market": "PASSEUR",
+      "cote": 3.75,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 15,
+      "timestamp": "2026-10-03T20:09:05.579492",
+      "sport": "nhl",
+      "pick_id": 10,
+      "player": "Ryan Shea",
+      "market": "PASSEUR",
+      "cote": 3.6,
+      "mise": 1.0,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 14,
+      "timestamp": "2026-10-03T20:09:05.577123",
+      "sport": "nhl",
+      "pick_id": 9,
+      "player": "Kris Letang",
+      "market": "PASSEUR",
+      "cote": 3.45,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 13,
+      "timestamp": "2026-10-03T20:09:05.574520",
+      "sport": "nhl",
+      "pick_id": 8,
+      "player": "Easton Cowan",
+      "market": "PASSEUR",
+      "cote": 3.65,
+      "mise": 2.0,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
     {
       "id": 12,
       "timestamp": "2026-10-03T16:37:24.537054",
