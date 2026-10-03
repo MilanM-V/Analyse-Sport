@@ -206,7 +206,11 @@ def evaluate_player_markets(
 
     # Buteurs : Attaquants actifs (Défenseurs toujours strictement exclus)
     cat_but = None
-    if pos not in ('D', 'LD', 'RD') and (is_top9 or season_g >= 0.20):
+    # On rejette explicitement 'D', 'LD', 'RD', mais aussi les positions vides (Cold Start) 
+    # pour éviter que l'IA hallucine sur un défenseur avec un gros temps de glace.
+    is_forward = pos in ('C', 'LW', 'RW', 'F', 'W')
+    
+    if (is_forward or (pos == '' and season_g >= 1.0)) and (is_top9 or season_g >= 0.20):
         if (is_home or is_playoff or not cfg.thresholds.buteurs.home_only):
             cat_but = "BUTEUR"
 
