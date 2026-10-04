@@ -1,6 +1,8 @@
 # Audit complet du moteur BetEngine — `shared/` et `nhl/`
 
 *2026-10-04 · branche `test` (commit 9d0911a) · audit Senior Data Scientist / ML Engineer, paris quantitatifs.*
+> **Mise à jour :** les phases P0 → P3 de ce rapport ont été exécutées le même jour. Résultats, décisions et évolution des notes (12,5 → 14/20) : [reports/RECAP_AUDIT_P0_P3_2026-10-04.md](reports/RECAP_AUDIT_P0_P3_2026-10-04.md).
+
 *Fait suite à [AUDIT_NHL_2026-10-03.md](AUDIT_NHL_2026-10-03.md). Ce rapport audite l'état **actuel** du code après les phases P0 → P3 et la bascule en mode « proxy + cote seuil ».*
 
 ## 0. Verdict exécutif
