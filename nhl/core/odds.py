@@ -6,11 +6,15 @@ Déplacé de shared/odds_api.py à l'audit P3 du 2026-10-04 : la couche partagé
 plus de nhl/.
 """
 import asyncio
+import logging
 from typing import Callable, Dict, Iterable, Optional, Tuple
 
 from nhl.config.constants import TEAM_ABBR_TO_FULL, TEAM_FULL_TO_ABBR
 from nhl.config.settings import cfg
+from nhl.core import fr_odds
 from shared.odds_api import OddsAPIClient, _norm
+
+logger = logging.getLogger("NHL.Odds")
 
 
 def nhl_team_key() -> Callable[[str], str]:
@@ -23,12 +27,18 @@ def nhl_team_key() -> Callable[[str], str]:
 
 
 async def fetch_nhl_odds(players_map: Dict[str, str],
-                         games: Optional[Iterable[Tuple[str, str]]] = None) -> Dict[str, Dict[str, float]]:
+                         games: Optional[Iterable[Tuple[str, str]]] = None,
+                         log_moment: Optional[str] = None,
+                         session_date: Optional[str] = None) -> Dict[str, Dict[str, float]]:
     """
     Scrape les cotes NHL (Buteurs, Passeurs, Pointeurs).
     Args:
         players_map: Dict {Nom_Joueur: Equipe}.
         games: affiches du soir [(domicile, extérieur)], abréviations ou noms complets.
+        log_moment: 'apercu' (compos probables), 'vague' (picks confirmés) ou 'cloture' (T-5) :
+            journalise les cotes de tous les joueurs dans la table book_odds (books français,
+            Pinnacle, médiane US). None : pas de journalisation.
+        session_date: date de session NHL (obligatoire avec log_moment).
     Returns:
         Dict des cotes: {'McDavid': {'BUTEUR': 2.2, 'PASSEUR': 1.8}}
     """
@@ -69,5 +79,22 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
             data_ast = res_assist[name]['ASSISTS']
             final_results[name]['PASSEUR'] = data_ast
             final_results[name]['ASSISTS'] = data_ast
-            
+
+    # Vraies cotes des books français (nhl/core/fr_odds.py) : référence journalisée et, si
+    # [fr_odds] use_as_exec, cote d'exécution à la place de l'estimation (médiane US décotée).
+    fr_conf = fr_odds.settings()
+    if fr_conf.enabled and games:
+        try:
+            fr = await asyncio.to_thread(fr_odds.fetch_fr_odds, list(games), players_map, None, fr_conf)
+            n_exec = fr_odds.apply_fr_prices(final_results, fr, fr_conf)
+            logger.info(f"[FR] {fr_odds.status_line(fr)} | cote réelle utilisée sur {n_exec} marché(s)")
+        except Exception as e:  # la lecture des books FR ne doit jamais bloquer une vague
+            logger.error(f"[FR] Lecture des books français impossible : {e}", exc_info=True)
+    if log_moment and session_date:
+        try:
+            from nhl.core.odds_logging import log_book_odds
+            log_book_odds(final_results, players_map, list(games or []), session_date, log_moment)
+        except Exception as e:  # la journalisation non plus
+            logger.error(f"[FR] Journalisation des cotes ({log_moment}) impossible : {e}", exc_info=True)
+
     return final_results

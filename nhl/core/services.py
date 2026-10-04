@@ -128,9 +128,16 @@ def pick_card_text(p: Dict[str, Any], market: str) -> str:
     heure = f" · \U0001f552 {format_match_time(p['Heure'])}" if p.get("Heure") else ""
     seuil = f"{p['CoteSeuil']:.2f}" if p.get("CoteSeuil") else "?"
     early = " \U0001f9ea découverte" if p.get("Phase") == "early" else ""
-    return (f"{emoji} <b>{p['Joueur']}</b> {lieu} — {label}{early}\n"
-            f"{p.get('Match', '')}{heure}\n"
-            f"à prendre si cote &gt; <b>{seuil}</b> · {p.get('Mise', '')}  <code>{p.get('Ref', '')}</code>")
+    head = f"{emoji} <b>{p['Joueur']}</b> {lieu} — {label}{early}\n{p.get('Match', '')}{heure}\n"
+    if p.get("PriceSource") == "fr" and p.get("Cote"):
+        from nhl.core.fr_odds import BOOK_LABELS
+        autres = [f"{BOOK_LABELS.get(b, b)} {c:.2f}" for b, c in
+                  sorted((p.get("FrPrices") or {}).items(), key=lambda x: -x[1])
+                  if BOOK_LABELS.get(b, b) != p.get("Bookmaker")]
+        return (head + f"<b>@{p['Cote']:.2f}</b> chez <b>{p.get('Bookmaker', '?')}</b> (mini {seuil}) · "
+                f"{p.get('Mise', '')}  <code>{p.get('Ref', '')}</code>"
+                + (f"\nAutres : {' · '.join(autres)}" if autres else ""))
+    return head + f"à prendre si cote &gt; <b>{seuil}</b> · {p.get('Mise', '')}  <code>{p.get('Ref', '')}</code>"
 
 
 def parse_odds_reply(text: str) -> Optional[tuple]:

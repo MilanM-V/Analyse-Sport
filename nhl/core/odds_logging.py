@@ -7,6 +7,10 @@ entraîner un jour des features de marché :
   gardiens titulaires annoncés (RotoWire), une ligne par match et par scan ;
 - `props_log` : cotes points et tirs cadrés (lignes 0.5 / 1.5 / 2.5), derrière
   `[betting] log_extra_markets` (désactivé par défaut : double la consommation de crédits).
+- `book_odds` : pour chaque joueur évalué, cotes buteur / passeur des books français
+  (nhl/core/fr_odds.py), Pinnacle Oui / Non et médiane US, à l'aperçu (`apercu`, compos
+  probables), aux picks confirmés (`vague`) et à T-5 (`cloture`). Base de la calibration du
+  prix, du suivi de la stratégie « prix » et de la comparaison jouer tôt / jouer tard.
 """
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -32,9 +36,66 @@ def _ensure_tables() -> None:
         conn.execute("""CREATE TABLE IF NOT EXISTS props_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, date TEXT, home TEXT, away TEXT,
             market TEXT, joueur TEXT, point REAL, side TEXT, book TEXT, price REAL)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS book_odds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, ts TEXT, moment TEXT, home TEXT,
+            away TEXT, market TEXT, joueur TEXT, book TEXT, cote REAL, cote_non REAL)""")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_book_odds_date ON book_odds (date, joueur)")
         conn.commit()
     finally:
         conn.close()
+
+
+def log_book_odds(results: Dict[str, Dict[str, Any]], players_map: Dict[str, str],
+                  games: Iterable[Tuple[str, str]], session_date: str, moment: str) -> int:
+    """Journalise les cotes de chaque joueur évalué (table book_odds).
+
+    Une ligne par cote d'un book français (`fr_prices`), une pour Pinnacle (cote = Oui,
+    cote_non = Non) et une pour la médiane des books US, sur les marchés buteur et passeur.
+
+    Args:
+        results: sortie de nhl.core.odds.fetch_nhl_odds.
+        players_map: {joueur: abréviation de l'équipe} des joueurs évalués.
+        games: affiches [(domicile, extérieur)] du lot, noms complets ou abréviations.
+        session_date: date de session NHL.
+        moment: 'apercu' (compos probables), 'vague' (picks confirmés) ou 'cloture' (T-5).
+
+    Returns:
+        Nombre de lignes écrites.
+    """
+    from nhl.core.fr_odds import team_abbr
+    from shared.utils import paris_now
+    side: Dict[str, Tuple[str, str]] = {}
+    for h, a in games:
+        ha, aa = team_abbr(h), team_abbr(a)
+        if ha and aa:
+            side[ha] = side[aa] = (ha, aa)
+    ts = paris_now().isoformat()
+    recs = []
+    for player, team in players_map.items():
+        home, away = side.get(team, (None, None))
+        for key, market in (("BUTS", "but"), ("ASSISTS", "ast")):
+            d = (results.get(player) or {}).get(key)
+            if not isinstance(d, dict):
+                continue
+            base = (session_date, ts, moment, home, away, market, player)
+            recs += [base + (book, price, None) for book, price in sorted((d.get("fr_prices") or {}).items())]
+            if d.get("pin_yes") or d.get("pin_no"):
+                recs.append(base + ("pinnacle", d.get("pin_yes"), d.get("pin_no")))
+            if d.get("soft_median"):
+                recs.append(base + ("us_median", d["soft_median"], None))
+    if not recs:
+        return 0
+    _ensure_tables()
+    conn = get_connection()
+    try:
+        conn.executemany(
+            "INSERT INTO book_odds (date, ts, moment, home, away, market, joueur, book, cote, cote_non) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", recs)
+        conn.commit()
+    finally:
+        conn.close()
+    logger.info(f"[Cotes] {len(recs)} cote(s) journalisée(s) ({moment}).")
+    return len(recs)
 
 
 def _pick_book(rows: List[Dict[str, Any]]) -> Optional[str]:

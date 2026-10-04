@@ -47,9 +47,13 @@ def format_match_time(raw: str) -> str:
 def _pick_line(r: Dict[str, Any]) -> str:
     """Suffixe d'une ligne de pick (message du canal).
 
+    Cote réelle d'un book français (PriceSource « fr ») : la cote, le book et la cote minimale.
     Mode proxy (CoteSeuil présente) : seulement la cote minimale à trouver sur un book FR
     et la mise — ni la cote proxy US, ni la référence (réservée aux fiches privées admin).
     """
+    if r.get('PriceSource') == 'fr' and r.get('Cote'):
+        mini = f" (mini {r['CoteSeuil']:.2f})" if r.get('CoteSeuil') else ""
+        return f" — <b>@{r['Cote']:.2f}</b> chez {r.get('Bookmaker', '?')}{mini} | Mise: {r.get('Mise', '1 U')}"
     if r.get('CoteSeuil'):
         return f" — à prendre si cote &gt; <b>{r['CoteSeuil']:.2f}</b> | Mise: {r.get('Mise', '1 U')}"
     if r.get('Cote'):
