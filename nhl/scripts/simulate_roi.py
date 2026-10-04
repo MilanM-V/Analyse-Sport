@@ -56,8 +56,10 @@ RETRAIN = {
                  (2024, 10), (2024, 11), (2024, 12), (2025, 1)]],
 }
 PRICE_VARIANTS = {"exec": None, "soft_median": "soft_median", "soft_max": "soft_max", "prod": "prod_price"}
-# Couverture live (check_odds_coverage.py, 2026-10-04) : les passes ne sont cotées que par Pinnacle.
-AST_PINNACLE_ONLY = True
+# La règle de prix est celle de la prod (shared.odds_api.apply_proxy) : médiane US × décote du
+# marché si des books US cotent, sinon Pinnacle × pin_haircut. 5 min avant le match, ~60 % des
+# passes ont une cote US (calibration Winamax du 2026-10-04) : on ne force plus Pinnacle.
+AST_PINNACLE_ONLY = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,13 +129,13 @@ def add_prod_price(preds: pd.DataFrame) -> pd.DataFrame:
     passes, aucun book soft ne cote en live : seul le repli Pinnacle s'applique.
     Ajoute `pin_yes` depuis odds_wide.parquet si les prédictions ne l'ont pas.
     """
-    from nhl.sim.version import PIN_HAIRCUT
+    from nhl.sim.version import EXEC_HAIRCUT_AST, PIN_HAIRCUT
     out = preds.copy()
     if "pin_yes" not in out:
         o = pd.read_parquet(ODDS_WIDE, columns=["date", "playerId", "market", "pin_yes"])
         o["date"] = pd.to_datetime(o["date"])
         out = out.merge(o, on=["date", "playerId", "market"], how="left")
-    soft = out["soft_median"] * EXEC_HAIRCUT
+    soft = out["soft_median"] * np.where(out["market"] == "ast", EXEC_HAIRCUT_AST, EXEC_HAIRCUT)
     pin = out["pin_yes"] * PIN_HAIRCUT
     price = soft.where(soft.notna(), pin)
     if AST_PINNACLE_ONLY:

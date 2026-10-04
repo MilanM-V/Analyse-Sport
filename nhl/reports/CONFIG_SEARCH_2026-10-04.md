@@ -120,3 +120,9 @@ Contrôle : la phase `q_final` du harnais redonne exactement la ligne de la rech
 Suivi prévu : EV de clôture par marché via `/roi`. Si le passeur reste négatif après une centaine de paris, basculer en « Buteur seul (moteur prod) » : `markets = ["but"]`, `cote_max_but = 8`.
 
 La grille de recherche est désormais ancrée sur les poids appris en log-loss (0,50 / 0,75) et non plus sur le TOML. Elle ne bouge donc plus quand la config de prod change.
+
+## 8. Correctif du prix des passes (2026-10-04, après la décision)
+
+La prod appliquait la décote du buteur (× 1,078) aux passes cotées par les books américains, alors que Winamax paie les passes au prix de la médiane US (× 1,00). Le prix des passes était donc surestimé d'environ 8 %. De son côté, la simulation prenait toujours Pinnacle pour les passes. Les deux appliquent maintenant la même règle : médiane US × décote du marché (`exec_haircut_ast = 1.00`), sinon Pinnacle.
+
+Recherche relancée avec ce prix : la config retenue fait **+123,7 U / saison** (ROI +21,7 %, drawdown 10,2 U) en validation et **+97,7 U / saison** (ROI +25,2 %) en contrôle, sur 684 paris (phase `q_final`). Les règles automatiques « Équilibré » et « Agressif » retiennent maintenant une config qui ne fait que +24 U en contrôle : une preuve de plus que le classement fin est du bruit, et que la config retenue est la bonne.

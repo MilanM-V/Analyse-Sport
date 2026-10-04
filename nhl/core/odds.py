@@ -42,11 +42,14 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
     # vérifie à la main que la cote FR dépasse la cote seuil du pick.
     b = cfg.betting
     books = list(getattr(b, "exec_books", ["winamax_fr"]))
-    proxy = ((b.exec_haircut, b.pin_haircut) if getattr(b, "exec_mode", "proxy") == "proxy" else None)
+    is_proxy = getattr(b, "exec_mode", "proxy") == "proxy"
+    # Décote propre à chaque marché (calibration Winamax : buteur 1,078 × médiane US, passes 1,00)
+    proxy = {"player_goal_scorer_anytime": (b.exec_haircut, b.pin_haircut) if is_proxy else None,
+             "player_assists": (getattr(b, "exec_haircut_ast", b.exec_haircut), b.pin_haircut) if is_proxy else None}
     full = [(TEAM_ABBR_TO_FULL.get(h, h), TEAM_ABBR_TO_FULL.get(a, a)) for h, a in games] if games else None
     key = nhl_team_key()
     tasks = [
-        OddsAPIClient.fetch_odds('icehockey_nhl', mk, players_map, exec_books=books, proxy=proxy,
+        OddsAPIClient.fetch_odds('icehockey_nhl', mk, players_map, exec_books=books, proxy=proxy[mk],
                                  team_names=TEAM_ABBR_TO_FULL, games=full, team_key=key,
                                  devig_method=getattr(b, "devig_method", "multiplicative"))
         for mk in ('player_goal_scorer_anytime', 'player_assists')

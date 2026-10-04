@@ -29,6 +29,7 @@ def _betting() -> dict:
 # Décote médiane soft books → prix FR, lue dans settings.toml (partagée avec simulate_roi et le bot)
 EXEC_HAIRCUT = float(_betting().get("exec_haircut", 0.94))
 PIN_HAIRCUT = float(_betting().get("pin_haircut", 0.90))
+EXEC_HAIRCUT_AST = float(_betting().get("exec_haircut_ast", EXEC_HAIRCUT))
 
 
 def current_version() -> str:

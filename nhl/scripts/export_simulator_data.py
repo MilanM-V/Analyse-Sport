@@ -36,7 +36,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from nhl.core.betting import BetParams  # noqa: E402
 from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
-from nhl.sim.version import EXEC_HAIRCUT, PIN_HAIRCUT, current_version  # noqa: E402
+from nhl.sim.version import EXEC_HAIRCUT, EXEC_HAIRCUT_AST, PIN_HAIRCUT, current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
 def load_preds(src: str) -> pd.DataFrame:
@@ -110,7 +110,8 @@ def export() -> str:
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "version": current_version(),
         "source": "configurations de nhl/reports/config_scenarios.json, prix de prod calibré",
-        "price": f"médiane US × {EXEC_HAIRCUT:.3f} ; passes = Pinnacle × {PIN_HAIRCUT:.2f}".replace(".", ","),
+        "price": (f"médiane US × {EXEC_HAIRCUT:.3f} au buteur, × {EXEC_HAIRCUT_AST:.2f} aux passes ; "
+                  f"à défaut Pinnacle × {PIN_HAIRCUT:.2f}").replace(".", ","),
         "period": [pd.Timestamp(all_dates[0]).strftime("%Y-%m-%d"), pd.Timestamp(all_dates[-1]).strftime("%Y-%m-%d")],
         "params": {"kelly_fraction": params.kelly_fraction, "min_stake": params.min_stake,
                    "max_game": params.max_game_exposure, "max_day": params.max_daily_exposure},

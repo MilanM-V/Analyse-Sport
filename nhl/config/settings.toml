@@ -65,7 +65,9 @@ exec_mode = "proxy"
 # Calibré le 2026-10-04 sur 15 matchs (dernières cotes Winamax avant le coup d'envoi vs The Odds API
 # 5 min avant) : Winamax = 1,078 × médiane US au buteur (IC 95 % 1,069-1,093) et = cote Pinnacle
 # « Oui » (ratio 1,00, IC 1,00-1,04). Rapport : nhl/reports/WINAMAX_CALIBRATION_2026-10-04.md
-exec_haircut = 1.078
+exec_haircut = 1.078          # buteur : Winamax / médiane US
+exec_haircut_ast = 1.00       # passes : Winamax = médiane US (ratio 1,00, IC 0,96-1,02) ; avant le 2026-10-04 la prod
+                              # appliquait 1,078 aux passes cotées par les books US (prix surestimé d'environ 8 %)
 pin_haircut = 1.00
 # Audit 2026-10-04 (P1) : no-vig de Shin, meilleure log-loss que le multiplicatif sur 2023-24
 # (le multiplicatif surestime le « Oui » : 26,7 % prédit contre 24,9 % observé au buteur).
