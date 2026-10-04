@@ -39,7 +39,13 @@ def current_version() -> str:
     h = hashlib.sha256()
     h.update(json.dumps({"features": FEATURES_VERSION, "betting": betting, "haircut": EXEC_HAIRCUT},
                         sort_keys=True).encode("utf-8"))
-    for path in MODELS + ([SCENARIOS] if os.path.exists(SCENARIOS) else []):
+    for path in MODELS:
         with open(path, "rb") as f:
             h.update(hashlib.sha256(f.read()).digest())
+    if os.path.exists(SCENARIOS):
+        # Contenu JSON canonique, pas les octets : sous Windows (core.autocrlf) le fichier est en CRLF,
+        # en CI en LF ; hacher les octets donnait deux versions différentes pour le même fichier.
+        with open(SCENARIOS, encoding="utf-8") as f:
+            canon = json.dumps(json.load(f), sort_keys=True, separators=(",", ":"))
+        h.update(hashlib.sha256(canon.encode("utf-8")).digest())
     return h.hexdigest()[:12]
