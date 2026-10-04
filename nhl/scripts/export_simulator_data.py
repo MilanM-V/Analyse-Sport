@@ -79,10 +79,9 @@ def summary(nights: list) -> dict:
 
 def config_nights(scenario: dict, all_dates: list) -> list:
     """Paris de chaque soirée cotée pour une configuration : [cote, mise, gagné, p_cons, marché]."""
-    from nhl.scripts.search_config import Config, day_candidates, load_engine, run_config
+    from nhl.scripts.search_config import W_BASE, Config, day_candidates, load_engine, run_config
     c = scenario["config"]
-    cfg = Config(c["engine"], tuple(c["markets"]), c["ev_min"],
-                 round(c["blend_w"]["but"] - BetParams.from_config().blend_w["but"], 2),
+    cfg = Config(c["engine"], tuple(c["markets"]), c["ev_min"], round(c["blend_w"]["but"] - W_BASE["but"], 2),
                  c["cote_max_but"], c["max_bets_per_game"])
     bets = run_config(day_candidates(load_engine(cfg.engine)), cfg)
     by_day = {d: g for d, g in bets.groupby("date")} if len(bets) else {}

@@ -26,8 +26,9 @@ def test_max_bets_per_game_keeps_best_ev():
     assert sorted((b["game_id"], b["p_model"]) for b in one) == [(1, 0.40), (2, 0.33)]
 
 
-def test_default_config_has_no_per_game_limit():
-    assert BetParams.from_config().max_bets_per_game == 0
+def test_per_game_limit_defaults_to_unlimited():
+    # Valeur par défaut du code (la prod la fixe à 1 dans settings.toml)
+    assert _params().max_bets_per_game == 0
 
 
 def test_scenario_rules_on_toy_grid():
@@ -49,8 +50,21 @@ PREDS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @pytest.mark.skipif(not os.path.exists(PREDS), reason="prédictions walk-forward absentes (fichiers dérivés, hors git)")
-def test_current_config_reproduces_harness():
-    from nhl.scripts.search_config import current_config, day_candidates, load_engine, run_config
+def test_current_config_reproduces_search_row():
+    """La config de settings.toml redonne exactement sa ligne de config_search.csv."""
+    from nhl.scripts.search_config import GRID_CSV, current_config, day_candidates, load_engine, run_config
+    from nhl.scripts.simulate_roi import VAL_END
     cfg = current_config()
+    row = pd.read_csv(GRID_CSV).set_index("key").loc[cfg.key()]
     b = run_config(day_candidates(load_engine(cfg.engine)), cfg)
-    assert len(b) == 1769 and round(b["profit"].sum(), 1) == 101.6  # = phase q_winamax
+    val, ctl = b[b["date"] < VAL_END], b[b["date"] >= VAL_END]
+    assert (len(val), len(ctl)) == (row["val_n"], row["ctl_n"])
+    assert round(val["profit"].sum(), 6) == round(row["val_profit"], 6)
+
+
+def test_prod_config_is_balanced_one_per_game():
+    """Choix du 2026-10-04 : « Équilibré, 1 pari / match », mode proxy (cote seuil) conservé."""
+    from nhl.config.settings import cfg
+    p = BetParams.from_config()
+    assert p.max_bets_per_game == 1 and p.ev_mid == 0.08 and p.blend_w == {"but": 0.65, "ast": 0.90}
+    assert cfg.betting.exec_mode == "proxy" and cfg.mode.paper_trading is True

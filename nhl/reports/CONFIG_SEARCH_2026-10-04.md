@@ -109,3 +109,14 @@ Rien n'est changé en prod pour l'instant. Une fois ton choix fait, il suffit de
 | Buteur seul (prod) | `["but"]` | 0,08 | 0,65 / — | 8 | 1 |
 
 L'option `max_bets_per_game` existe déjà dans `nhl/core/betting.py` ; elle vaut 0 (illimité) par défaut.
+
+## 7. Décision (2026-10-04)
+
+Configuration retenue : **Équilibré, 1 pari / match**, appliquée dans `settings.toml [betting]` :
+`ev_min_* = 0.08`, `blend_w_but = 0.65`, `blend_w_ast = 0.90`, `max_bets_per_game = 1`. Le reste est inchangé : marchés buteur + passeur, cote max buteur 15, Kelly 1/6, plafonds 5 U par match et 30 U par jour, `exec_mode = "proxy"` avec cote seuil, et `paper_trading = true`.
+
+Contrôle : la phase `q_final` du harnais redonne exactement la ligne de la recherche (749 paris, ROI +19,4 %).
+
+Suivi prévu : EV de clôture par marché via `/roi`. Si le passeur reste négatif après une centaine de paris, basculer en « Buteur seul (moteur prod) » : `markets = ["but"]`, `cote_max_but = 8`.
+
+La grille de recherche est désormais ancrée sur les poids appris en log-loss (0,50 / 0,75) et non plus sur le TOML. Elle ne bouge donc plus quand la config de prod change.

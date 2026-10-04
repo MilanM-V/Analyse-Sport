@@ -32,46 +32,46 @@
           "but",
           "ast"
         ],
-        "ev_min": 0.04,
+        "ev_min": 0.08,
         "blend_w": {
-          "but": 0.5,
-          "ast": 0.75
+          "but": 0.65,
+          "ast": 0.9
         },
         "cote_max_but": 15.0,
-        "max_bets_per_game": 0
+        "max_bets_per_game": 1
       },
       "val": {
-        "n": 1199.0,
-        "per_game": 1.1040515653775322,
-        "profit": 87.973815,
-        "profit_season": 98.97054187500001,
-        "roi": 0.09614624590163935,
-        "profit_ci_lo": 6.521982375000024,
-        "profit_ci_hi": 173.42157637499994,
-        "max_dd": 23.605759999999997,
-        "night_std": 3.586448135858541,
-        "worst_night": -8.085899999999999,
-        "sharpe_night": 0.16573993165430917,
-        "ev_pin": -0.04511663925797932
+        "n": 498.0,
+        "per_game": 0.4585635359116022,
+        "profit": 108.119605,
+        "profit_season": 121.634555625,
+        "roi": 0.1934161091234347,
+        "profit_ci_lo": 38.12843175,
+        "profit_ci_hi": 177.60547062499998,
+        "max_dd": 10.14855,
+        "night_std": 3.091225160256629,
+        "worst_night": -6.0,
+        "sharpe_night": 0.24983068292347527,
+        "ev_pin": -0.058997035127632526
       },
       "ctl": {
-        "n": 570.0,
-        "per_game": 0.9844559585492227,
-        "profit": 13.647460000000011,
-        "profit_season": 28.56445116279072,
-        "roi": 0.038497771509167875,
-        "profit_ci_lo": -38.92165749999998,
-        "profit_ci_hi": 73.16517024999997,
-        "max_dd": 24.31322,
-        "night_std": 3.246832797726789,
-        "worst_night": -6.7,
-        "sharpe_night": 0.05254143364556313,
-        "ev_pin": -0.010429157347328034
+        "n": 251.0,
+        "per_game": 0.43350604490500866,
+        "profit": 39.67616500000001,
+        "profit_season": 83.04313604651165,
+        "roi": 0.19593167901234573,
+        "profit_ci_lo": -7.837403624999994,
+        "profit_ci_hi": 103.763235125,
+        "max_dd": 13.144350000000003,
+        "night_std": 3.279890423346464,
+        "worst_night": -3.5,
+        "sharpe_night": 0.15710124535323244,
+        "ev_pin": -0.019790357464569554
       },
       "robustness": {
         "neighbors": 6,
-        "neighbors_median_val_profit_season": 88.55636625000002,
-        "rank_among_neighbors": 3,
+        "neighbors_median_val_profit_season": 96.91804125000002,
+        "rank_among_neighbors": 2,
         "p_value_no_edge": 0.0,
         "p_value_bonferroni": 0.0
       }

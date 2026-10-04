@@ -47,10 +47,11 @@ game_type = "2"         # 2 = saison régulière, 3 = playoffs
 semaphore_limit = 20
 
 [betting]
-# Stratégie de mise (nhl/core/betting.py). Base = phase `p2_apriori` (seuls les poids w
-# sont appris, en log-loss sur la validation 2023-24), puis pistes validées sur
-# validation ET test (nhl/reports/PISTES_AMELIORATION.md) : EV ≥ 4 %, Kelly 1/6,
-# plafonds 5 U/match et 30 U/jour (phase `x_combo` : +32 % de paris, +49 % de gain net).
+# Stratégie de mise (nhl/core/betting.py). Configuration « Équilibré, 1 pari / match »,
+# choisie le 2026-10-04 parmi 672 configurations (nhl/reports/CONFIG_SEARCH_2026-10-04.md) :
+# EV ≥ 8 %, poids du modèle 0,65 / 0,90 face au no-vig Pinnacle, 1 pari max par match, Kelly 1/6.
+# Simulé : +122 U / saison (validation 2023-24), +83 U (contrôle 2024-25), ROI ≈ +19 %, drawdown 10-13 U.
+# Mode proxy conservé : chaque pick affiche la cote seuil à trouver sur un book FR.
 markets = ["but", "ast"]
 # Books où l'utilisateur peut parier (mode "books" : cote d'exécution = la meilleure d'entre eux).
 # Retirer ceux sans compte. Clés The Odds API (région eu).
@@ -69,15 +70,15 @@ pin_haircut = 1.00
 # Audit 2026-10-04 (P1) : no-vig de Shin, meilleure log-loss que le multiplicatif sur 2023-24
 # (le multiplicatif surestime le « Oui » : 26,7 % prédit contre 24,9 % observé au buteur).
 devig_method = "shin"
-blend_w_but = 0.50           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle), réappris avec Shin
-blend_w_ast = 0.75
+blend_w_but = 0.65           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle) ; appris en log-loss : 0,50 / 0,75
+blend_w_ast = 0.90
 cote_min_but = 1.5
 cote_max_but = 15.0
 cote_min_ast = 1.5
 cote_max_ast = 6.0
-ev_min_low = 0.04            # EV minimale (cote < 2.00 / 2.00-3.50 / > 3.50)
-ev_min_mid = 0.04
-ev_min_high = 0.04
+ev_min_low = 0.08            # EV minimale (cote < 2.00 / 2.00-3.50 / > 3.50)
+ev_min_mid = 0.08
+ev_min_high = 0.08
 no_pinnacle_extra_ev = 0.05  # EV supplémentaire exigée sans référence Pinnacle
 # Journalisation pour de futures features (audit P2, sans effet sur les paris du soir)
 log_match_context = true     # total de buts, 1N2, gardiens titulaires : ≈ 4 crédits par match et par vague
@@ -87,4 +88,5 @@ min_stake_u = 0.5            # sous ce montant : pas de pari (aucun plancher art
 max_stake_but_u = 1.5
 max_stake_ast_u = 2.0
 max_game_exposure_u = 5.0    # paris corrélés d'un même match
+max_bets_per_game = 1        # on ne garde que le meilleur EV de chaque match (0 = illimité)
 max_daily_exposure_u = 30.0

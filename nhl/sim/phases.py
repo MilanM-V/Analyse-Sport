@@ -577,3 +577,15 @@ def q_winamax_but() -> PhaseSpec:
 
 
 PHASES["q_winamax_but"] = q_winamax_but
+
+
+def q_final() -> PhaseSpec:
+    """Config de prod retenue le 2026-10-04 : « Équilibré, 1 pari / match » (lue dans settings.toml)."""
+    from nhl.config.settings import cfg
+    spec = _q_phase("q_final", "config retenue : Équilibré, 1 pari / match (EV ≥ 8 %, w 0,65 / 0,90)",
+                    {}, make_eligible(cfg.thresholds.passeurs.home_only, False), exec_is_prod=True)
+    spec.extra["devig"] = cfg.betting.devig_method
+    return spec
+
+
+PHASES["q_final"] = q_final

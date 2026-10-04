@@ -53,6 +53,10 @@ GRID = {
     "cote_max_but": [8.0, 15.0],
     "max_per_game": [0, 1],
 }
+# Poids du modèle appris en log-loss (validation 2023-24, no-vig Shin) : référence FIXE de la
+# grille (w_shift est relatif à ces valeurs, pas au TOML, pour que la grille ne bouge pas
+# quand la config de prod change).
+W_BASE = {"but": 0.50, "ast": 0.75}
 MIN_VAL_BETS = 150
 MIN_PROFIT_CI_LO = -10.0
 
@@ -72,7 +76,7 @@ class Config:
 
     def params(self) -> BetParams:
         base = BetParams.from_config()
-        w = {m: float(np.clip(base.blend_w[m] + self.w_shift, 0.0, 1.0)) for m in ("but", "ast")}
+        w = {m: float(np.clip(W_BASE[m] + self.w_shift, 0.0, 1.0)) for m in ("but", "ast")}
         return BetParams.from_config(
             markets=self.markets, ev_low=self.ev, ev_mid=self.ev, ev_high=self.ev, blend_w=w,
             cote_max={"but": self.cote_max_but, "ast": base.cote_max["ast"]},
@@ -82,7 +86,8 @@ class Config:
 def current_config() -> Config:
     """La config de prod (settings.toml) exprimée dans la grille."""
     b = BetParams.from_config()
-    return Config("p1b_ens", tuple(b.markets), b.ev_mid, 0.0, b.cote_max["but"], b.max_bets_per_game)
+    return Config("p1b_ens", tuple(b.markets), b.ev_mid, round(b.blend_w["but"] - W_BASE["but"], 2),
+                  b.cote_max["but"], b.max_bets_per_game)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
