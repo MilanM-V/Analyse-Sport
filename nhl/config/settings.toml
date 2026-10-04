@@ -6,6 +6,9 @@
 # Kill-switch (audit P0) : true = picks envoyés avec la mention PAPER et
 # non comptés dans le Portfolio. Repasser à false seulement après validation.
 paper_trading = true
+# Critère de passage en réel (fixé à l'avance, audit 2026-10-04) : au moins go_live_min_bets paris
+# avec cote de clôture ET borne basse de l'IC 95 % de l'EV de clôture (no-vig Pinnacle) > 0.
+go_live_min_bets = 300
 
 [thresholds.buteurs]
 # OMEGA Optimal — Buteurs (+87.9 U)
@@ -83,8 +86,11 @@ exec_books = ["winamax_fr", "betclic_fr", "unibet_fr", "pmu_fr"]
 exec_mode = "proxy"
 exec_haircut = 0.94
 pin_haircut = 0.90
-blend_w_but = 0.65           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle)
-blend_w_ast = 0.80
+# Audit 2026-10-04 (P1) : no-vig de Shin, meilleure log-loss que le multiplicatif sur 2023-24
+# (le multiplicatif surestime le « Oui » : 26,7 % prédit contre 24,9 % observé au buteur).
+devig_method = "shin"
+blend_w_but = 0.50           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle), réappris avec Shin
+blend_w_ast = 0.75
 cote_min_but = 1.5
 cote_max_but = 15.0
 cote_min_ast = 1.5

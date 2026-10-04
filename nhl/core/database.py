@@ -434,6 +434,56 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
 
     return msg
 
+def closing_ev_summary(days: str = "all", n_boot: int = 2000, seed: int = 0) -> Dict[str, Any]:
+    """EV de clôture des paris : closing_p_novig × cote prise − 1 (indicateur principal du paper).
+
+    La cote prise est la cote réelle saisie via /pris si elle existe, sinon la cote proxy.
+    Le « CLV prix » (cote prise / cote de clôture) n'est pas utilisé : en mode proxy, la cote
+    de clôture est une médiane US décotée, pas un prix du même book.
+
+    Returns:
+        {"n", "mise", "ev_mean" (pondérée par la mise), "ci_lo", "ci_hi", "n_real"} ;
+        n = 0 si aucun pari n'a de no-vig de clôture.
+    """
+    import numpy as np
+    conn = get_connection()
+    rows = []
+    try:
+        for table in ("picks", "picks_assists"):
+            sql = (f"SELECT COALESCE(cote_reelle, cote), mise, closing_p_novig, cote_reelle FROM {table} "
+                   f"WHERE closing_p_novig IS NOT NULL AND (pris IS NULL OR pris != 0) "
+                   f"AND (statut IS NULL OR statut != 'void')")
+            args: list = []
+            if days != "all":
+                sql += " AND date >= ?"
+                args.append((datetime.now() - timedelta(days=int(days))).strftime("%Y-%m-%d"))
+            rows += conn.execute(sql, args).fetchall()
+    finally:
+        conn.close()
+    rows = [r for r in rows if r[0]]
+    if not rows:
+        return {"n": 0, "mise": 0.0, "ev_mean": float("nan"), "ci_lo": float("nan"), "ci_hi": float("nan"), "n_real": 0}
+    cote = np.array([float(r[0]) for r in rows])
+    mise = np.array([float(r[1] or 1.0) for r in rows])
+    ev = np.array([float(r[2]) for r in rows]) * cote - 1.0
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(ev), size=(n_boot, len(ev)))
+    boot = (ev[idx] * mise[idx]).sum(1) / mise[idx].sum(1)
+    return {"n": len(ev), "mise": float(mise.sum()), "ev_mean": float((ev * mise).sum() / mise.sum()),
+            "ci_lo": float(np.percentile(boot, 2.5)), "ci_hi": float(np.percentile(boot, 97.5)),
+            "n_real": sum(1 for r in rows if r[3])}
+
+
+def go_live_verdict(summary: Dict[str, Any], min_bets: int) -> str:
+    """Texte du critère de passage en réel : ≥ min_bets paris ET borne basse de l'IC 95 % > 0."""
+    if summary["n"] == 0:
+        return f"⏳ Aucun pari avec cote de clôture (objectif : {min_bets})."
+    ok = summary["n"] >= min_bets and summary["ci_lo"] > 0
+    return ((f"✅ Critère atteint" if ok else "⛔ Rester en paper") +
+            f" : {summary['n']}/{min_bets} paris, EV de clôture {summary['ev_mean'] * 100:+.1f} % "
+            f"[IC 95 % {summary['ci_lo'] * 100:+.1f} ; {summary['ci_hi'] * 100:+.1f}]")
+
+
 if not os.path.exists(DB_PATH):
     init_db()
 else:

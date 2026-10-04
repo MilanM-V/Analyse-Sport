@@ -56,6 +56,19 @@ def market_rows(df: pd.DataFrame, market: str) -> pd.DataFrame:
     return df[df["position"] != "D"] if market == "but" else df
 
 
+PROFILE_TOI_MIN, PROFILE_GP_MIN = 13.0, 10  # mêmes filtres que la prod (ATOI ≥ 13, ≥ 10 matchs)
+
+
+def profile_population(df: pd.DataFrame, market: str) -> pd.DataFrame:
+    """Population de référence du PSI : celle que la prod sert réellement.
+
+    Construire le profil sur tous les joueurs (4e lignes, défenseurs au buteur...) alors que
+    la prod ne sert que des candidats filtrés produisait des alertes de dérive permanentes.
+    """
+    d = market_rows(df, market)
+    return d[(d["toi_l10"] >= PROFILE_TOI_MIN) & (d["std_gp"] >= PROFILE_GP_MIN)]
+
+
 def _metrics(y: np.ndarray, p: np.ndarray) -> Dict[str, float]:
     p = np.clip(p, 1e-6, 1 - 1e-6)
     return {"logloss": float(log_loss(y, p)), "brier": float(brier_score_loss(y, p)),
@@ -146,7 +159,7 @@ def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: b
         "holdout_days": HOLDOUT_DAYS, "holdout_logloss": met["logloss"], "holdout_brier": met["brier"],
         "holdout_auc": met["auc"], "holdout_rate": met["rate"], "data_hash": data_hash,
         "trained_at": datetime.now().isoformat(timespec="seconds"),
-        "feature_profile": reference_profile(d[d["date"] > d["date"].max() - pd.Timedelta(days=365)], feats),
+        "feature_profile": _profile(d, market, feats),
     }
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"ml_model_{market}.pkl")
@@ -155,14 +168,35 @@ def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: b
     return True
 
 
+def _profile(d: pd.DataFrame, market: str, feats: list) -> dict:
+    """Profil PSI sur la population servie des 365 derniers jours."""
+    recent = d[d["date"] > d["date"].max() - pd.Timedelta(days=365)]
+    return reference_profile(profile_population(recent, market), feats)
+
+
+def refresh_profiles(df: pd.DataFrame, out_dir: str = MODELS_DIR) -> None:
+    """Recalcule uniquement `feature_profile` des modèles en place (sans ré-entraîner)."""
+    for market in ("but", "ast"):
+        path = os.path.join(out_dir, f"ml_model_{market}.pkl")
+        bundle = joblib.load(path)
+        d = df[df["date"] <= pd.Timestamp(bundle["train_cutoff"])]
+        bundle["feature_profile"] = _profile(d, market, bundle["features"])
+        joblib.dump(bundle, path)
+        print(f"  profil PSI recalculé : {path}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--algos", default=",".join(DEFAULT_ALGOS))
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--live", action="store_true", help="écrit dans nhl/models/live/ (retrain automatique du VPS)")
+    ap.add_argument("--profile-only", action="store_true", help="recalcule seulement le profil PSI des modèles en place")
     a = ap.parse_args()
     algos = tuple(x.strip() for x in a.algos.split(",") if x.strip())
     df = load_training_frame()
+    if a.profile_only:
+        refresh_profiles(df)
+        return
     print(f"{len(df):,} matchs-joueurs ({df['date'].min().date()} → {df['date'].max().date()}), "
           f"features {FEATURES_VERSION}, algos {algos}")
     saved = [train_market(df, market, algos, a.force, LIVE_DIR if a.live else MODELS_DIR) for market in ("but", "ast")]

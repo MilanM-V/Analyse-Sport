@@ -13,6 +13,9 @@ Principes :
   Sensibilités : médiane brute, meilleure cote.
 - Edge marché = moyenne(p_novig_Pinnacle * cote_exec - 1) sur les paris choisis :
   estimateur de l'EV réelle à faible variance (équivalent CLV).
+- RÈGLE FIGÉE (audit 2026-10-04) : la période oct. 2024 → janv. 2025 (« test ») a déjà servi
+  à adopter des pistes. Elle n'est plus qu'un CONTRÔLE : aucune décision ne se prend dessus.
+  Les décisions se prennent sur la validation 2023-24 ; le vrai test est le paper trading.
 
 Usage:
     python nhl/scripts/simulate_roi.py --phase baseline
@@ -136,6 +139,18 @@ def add_prod_price(preds: pd.DataFrame) -> pd.DataFrame:
     if AST_PINNACLE_ONLY:
         price = price.where(out["market"] != "ast", pin)
     out["prod_price"] = price
+    return out
+
+
+def apply_devig(preds: pd.DataFrame, method: str) -> pd.DataFrame:
+    """Recalcule `p_novig` avec la méthode de dévig donnée (shared.devig), depuis pin_yes / pin_no."""
+    from shared.devig import devig_yes
+    out = preds.copy()
+    if "pin_no" not in out:
+        o = pd.read_parquet(ODDS_WIDE, columns=["date", "playerId", "market", "pin_no"])
+        o["date"] = pd.to_datetime(o["date"])
+        out = out.merge(o, on=["date", "playerId", "market"], how="left")
+    out["p_novig"] = devig_yes(out["pin_yes"].to_numpy(), out["pin_no"].to_numpy(), method)
     return out
 
 
@@ -372,6 +387,8 @@ def run(spec: PhaseSpec, retrain: str = "quarterly") -> Dict:
         "soft_median", "soft_max", "p_novig", "pin_yes", "position", "team", "is_home", "ATOI_L10", "G_GP", "A_GP", "std_gp",
         "pos_bot")], errors="ignore").to_parquet(preds_path, index=False)
     preds = add_prod_price(preds)
+    if spec.extra.get("devig"):
+        preds = apply_devig(preds, spec.extra["devig"])
     if spec.extra.get("exec_is_prod"):
         preds["exec_price"] = preds["prod_price"]  # la phase simule le prix réel de la prod
     results, buckets = {}, pd.DataFrame()

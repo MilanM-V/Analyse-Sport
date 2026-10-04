@@ -118,7 +118,12 @@ def to_wide(long: pd.DataFrame) -> pd.DataFrame:
         if c not in wide:
             wide[c] = np.nan
     inv_y, inv_n = 1.0 / wide["pin_yes"], 1.0 / wide["pin_no"]
+    # p_novig reste multiplicatif (reproductibilité des phases historiques) ; les autres
+    # méthodes sont stockées à côté (la prod utilise [betting] devig_method).
     wide["p_novig"] = inv_y / (inv_y + inv_n)  # NaN si un côté manque
+    from shared.devig import METHODS, devig_yes
+    for meth in METHODS:
+        wide[f"p_novig_{meth}"] = devig_yes(wide["pin_yes"].to_numpy(), wide["pin_no"].to_numpy(), meth)
     wide["pin_overround"] = inv_y + inv_n
     return wide
 

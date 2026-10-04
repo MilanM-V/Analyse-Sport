@@ -284,12 +284,12 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         msg += get_roi_stats("picks", "but", days) + "\n"
         msg += get_roi_stats("picks_assists", "assist", days) + "\n"
         
-        # Ajout du ROI des combinés (Phase 4)
-        try:
-            msg += get_roi_stats("parlays", "combo", days)
-        except Exception:
-            pass
-        
+        # Indicateur principal du paper trading : EV de clôture vs Pinnacle (audit P1)
+        from nhl.config.settings import cfg
+        from nhl.core.database import closing_ev_summary, go_live_verdict
+        msg += "\n<b>EV de clôture (Pinnacle no-vig)</b>\n" + go_live_verdict(
+            closing_ev_summary(days), int(getattr(cfg.mode, "go_live_min_bets", 300)))
+
         await query.edit_message_text(text=msg, parse_mode="HTML")
 
 

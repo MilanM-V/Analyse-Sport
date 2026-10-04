@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv
 
+from shared.devig import devig_yes
 from shared.telegram_hub import send_telegram
 
 load_dotenv()
@@ -148,7 +149,8 @@ class OddsAPIClient:
                          proxy: Optional[Tuple[float, float]] = None,
                          team_names: Optional[Dict[str, str]] = None,
                          games: Optional[Iterable[Tuple[str, str]]] = None,
-                         team_key: Optional[Callable[[str], str]] = None) -> Dict[str, Dict[str, Any]]:
+                         team_key: Optional[Callable[[str], str]] = None,
+                         devig_method: str = "multiplicative") -> Dict[str, Dict[str, Any]]:
         """
         Récupère les cotes pour une liste de joueurs sur un marché donné.
         
@@ -170,6 +172,8 @@ class OddsAPIClient:
                 (les events The Odds API utilisent les noms complets).
             games: affiches du soir [(domicile, extérieur)] en noms complets. Seuls ces
                 events sont interrogés (cf. select_events).
+            team_key: normalisation des noms d'équipe (cf. select_events).
+            devig_method: méthode de dévig Pinnacle (shared.devig.METHODS).
             
         Returns:
             Dict { "Nom_Joueur": { "MARCHE": {price, bookmaker, is_winamax, pin_yes, pin_no, p_novig,
@@ -300,12 +304,11 @@ class OddsAPIClient:
                                     elif not exec_only_winamax and not data.get("is_winamax"):
                                         if price > data.get("price", 0):
                                             data.update(price=price, bookmaker=bm_name, is_winamax=False)
-                        # No-vig Pinnacle (multiplicatif) quand les deux côtés sont cotés
+                        # No-vig Pinnacle quand les deux côtés sont cotés (méthode : devig_method)
                         for p_name, mk in results.items():
                             d = mk.get(market_cap)
                             if d and d.get("pin_yes") and d.get("pin_no") and "p_novig" not in d:
-                                iy, ino = 1.0 / d["pin_yes"], 1.0 / d["pin_no"]
-                                d["p_novig"] = iy / (iy + ino)
+                                d["p_novig"] = devig_yes(d["pin_yes"], d["pin_no"], devig_method)
                             if d and proxy is not None:
                                 apply_proxy(d, *proxy)
                 except Exception as e:
@@ -356,7 +359,8 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
     key = nhl_team_key()
     tasks = [
         OddsAPIClient.fetch_odds('icehockey_nhl', mk, players_map, exec_books=books, proxy=proxy,
-                                 team_names=TEAM_ABBR_TO_FULL, games=full, team_key=key)
+                                 team_names=TEAM_ABBR_TO_FULL, games=full, team_key=key,
+                                 devig_method=getattr(b, "devig_method", "multiplicative"))
         for mk in ('player_goal_scorer_anytime', 'player_assists')
     ]
     

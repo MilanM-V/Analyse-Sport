@@ -32,13 +32,15 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from nhl.core.betting import BetParams, select_bets  # noqa: E402
-from nhl.scripts.simulate_roi import EXEC_HAIRCUT, REPORT_DIR, VAL_END  # noqa: E402
+from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
 from nhl.sim.version import current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
 SCENARIOS = {
-    "exec": ("Prix Winamax estimé (médiane × 0,94)", "soft_median", EXEC_HAIRCUT),
+    # Prix calculé exactement comme la prod (shared.odds_api.apply_proxy) : médiane soft × 0,94,
+    # et pour les passes (cotées par Pinnacle seul en live) Pinnacle × pin_haircut.
+    "exec": ("Prix de la prod (proxy ; passes = Pinnacle × 0,90)", "prod_price", 1.0),
     "median": ("Prix médian des books (multi-books FR)", "soft_median", 1.0),
     "best": ("Meilleure cote disponible", "soft_max", 1.0),
 }
@@ -46,8 +48,12 @@ SCENARIOS = {
 
 def load_preds(src: str) -> pd.DataFrame:
     """Prédictions walk-forward avec l'éligibilité de prod."""
+    from nhl.config.settings import cfg
+    from nhl.scripts.simulate_roi import add_prod_price, apply_devig
     p = pd.read_parquet(os.path.join(REPORT_DIR, f"preds_{src}.parquet"))
     p["date"] = pd.to_datetime(p["date"])
+    # Même prix et même no-vig Pinnacle que la prod
+    p = apply_devig(add_prod_price(p), getattr(cfg.betting, "devig_method", "multiplicative"))
     parts = []
     for m in ("but", "ast"):
         sub = p[p["market"] == m].reset_index(drop=True)

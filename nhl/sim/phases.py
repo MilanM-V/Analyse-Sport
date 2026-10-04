@@ -484,3 +484,16 @@ def q_p0() -> PhaseSpec:
 
 
 PHASES["q_p0"] = q_p0
+
+
+Q_P1 = dict(Q_FROZEN_0410, blend_w={"but": 0.50, "ast": 0.75})  # w réappris (log-loss val) avec le no-vig Shin
+
+
+def q_p1_devig() -> PhaseSpec:
+    spec = _q_phase("q_p1_devig", "P1 : no-vig Pinnacle de Shin (au lieu de multiplicatif) + w réappris",
+                    Q_P1, make_eligible(False, False), exec_is_prod=True)
+    spec.extra["devig"] = "shin"
+    return spec
+
+
+PHASES["q_p1_devig"] = q_p1_devig

@@ -74,9 +74,13 @@ def simulate(val: pd.DataFrame, params: BetParams) -> pd.DataFrame:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", required=True)
+    ap.add_argument("--devig", default=None, help="méthode de dévig du no-vig Pinnacle (shared.devig.METHODS)")
     a = ap.parse_args()
     preds = pd.read_parquet(os.path.join(REPORT_DIR, f"preds_{a.phase}.parquet"))
     preds["date"] = pd.to_datetime(preds["date"])
+    if a.devig:
+        from nhl.scripts.simulate_roi import add_prod_price, apply_devig
+        preds = apply_devig(add_prod_price(preds), a.devig)
     # Même éligibilité que la phase P2 (passeurs à domicile ET à l'extérieur)
     from nhl.sim.phases import p2_eligible
     parts = []
@@ -147,7 +151,10 @@ def main() -> None:
     chosen["ev_thresholds"] = ev_pick
     print("\nRéglages retenus (validation uniquement) :")
     print(json.dumps(chosen, indent=2, default=str))
-    with open(os.path.join(REPORT_DIR, f"betting_params_{a.phase}.json"), "w", encoding="utf-8") as f:
+    # Fichier distinct par méthode de dévig : betting_params_<phase>.json alimente les phases
+    # historiques p2* et ne doit pas être écrasé.
+    suffix = f"_{a.devig}" if a.devig else ""
+    with open(os.path.join(REPORT_DIR, f"betting_params_{a.phase}{suffix}.json"), "w", encoding="utf-8") as f:
         json.dump(chosen, f, indent=2, default=str)
 
 

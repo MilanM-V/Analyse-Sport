@@ -2,6 +2,8 @@
 
 *2026-10-04. Harnais `nhl/scripts/simulate_roi.py` en walk-forward. Validation : saison 2023-24. Test : oct. 2024 → janv. 2025. Les détails de chaque phase sont dans `roi_by_phase.md`.*
 
+> **Mise à jour du 2026-10-04 (audit complet, P1).** La période de test oct. 2024 → janv. 2025 a servi à adopter les pistes ci-dessous : elle n'est plus vierge. Elle devient une période de **contrôle** : aucune nouvelle piste ne peut être adoptée sur elle. Les décisions se prennent sur la validation 2023-24, et le vrai test est le paper trading (EV de clôture, `/roi`). Voir `RECAP_AUDIT_P0_P3_2026-10-04.md`.
+
 **Règle d'adoption, fixée avant les tests.** Une piste est adoptée seulement si elle est positive ou neutre à la fois en validation et en test, au prix d'exécution comme aux prix médian et meilleure cote, et sans dégrader la log-loss. Les seuils ne sont jamais réglés sur le ROI : la phase P2 « réglée » faisait +33 % en validation et −57 % en test.
 
 **Prix d'exécution simulé :** médiane des soft books × 0,94.
