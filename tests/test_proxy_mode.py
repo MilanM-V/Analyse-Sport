@@ -5,8 +5,9 @@ import pytest
 
 from nhl.core import database
 from nhl.core.betting import BetParams, ev_threshold, min_odds, select_bets
-from nhl.core.formatter import _pick_line
-from nhl.core.services import handle_pick_command
+from nhl.core import services
+from nhl.core.formatter import _pick_line, format_match_time
+from nhl.core.services import handle_pick_command, parse_odds_reply, pick_card_text
 from shared.odds_api import apply_proxy
 
 
@@ -99,6 +100,44 @@ def test_skip_and_bad_refs(pick_db):
 
 # ── Affichage Telegram ──────────────────────────────────────────────────────
 def test_pick_line_shows_only_threshold():
+    """Canal public : cote seuil et mise, ni cote proxy ni référence."""
     line = _pick_line({"Cote": 3.10, "Bookmaker": "Proxy US", "CoteSeuil": 2.85, "Mise": "1.0 U", "Ref": "B12"})
-    assert "à prendre si cote &gt; <b>2.85</b>" in line and "B12" in line
-    assert "3.10" not in line and "Proxy" not in line
+    assert "à prendre si cote &gt; <b>2.85</b>" in line
+    assert "3.10" not in line and "Proxy" not in line and "B12" not in line
+
+
+@pytest.mark.parametrize("raw,expected", [("04.10. 20:00", "20h00"), ("12.01. 01:30", "01h30"), ("TBD", "TBD")])
+def test_format_match_time(raw, expected):
+    assert format_match_time(raw) == expected
+
+
+# ── Fiches privées admin (boutons Pris / Skip) ──────────────────────────────
+@pytest.mark.parametrize("text,expected", [
+    ("3.05", (3.05, None)), ("3,05 Betclic", (3.05, "betclic")), ("  2.5   winamax ", (2.5, "winamax")),
+    ("abc", None), ("0.9", None), ("", None),
+])
+def test_parse_odds_reply(text, expected):
+    assert parse_odds_reply(text) == expected
+
+
+PICK = {"Joueur": "Kirill Kaprizov", "Ref": "B12", "CoteSeuil": 2.89, "Mise": "1.0 U", "IsHome": True,
+        "Match": "Minnesota Wild vs Boston Bruins", "Heure": "05.10. 02:20"}
+
+
+def test_pick_card_text_has_match_context():
+    txt = pick_card_text(PICK, "but")
+    for part in ("Kirill Kaprizov", "Buteur", "\U0001f3e0", "Minnesota Wild vs Boston Bruins", "02h20",
+                 "2.89", "1.0 U", "B12"):
+        assert part in txt
+
+
+def test_send_pick_card_payload(monkeypatch):
+    sent = {}
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID", "42")
+    monkeypatch.setattr(services, "safe_post", lambda url, json, timeout: sent.update(url=url, json=json))
+    services.TelegramNotifier().send_pick_card(PICK, "but")
+    assert sent["json"]["chat_id"] == "42"
+    buttons = sent["json"]["reply_markup"]["inline_keyboard"][0]
+    assert [b["callback_data"] for b in buttons] == ["pick:take:B12", "pick:skip:B12"]
+    assert [b["text"] for b in buttons] == ["✅ Pris", "⏭️ Skip"]

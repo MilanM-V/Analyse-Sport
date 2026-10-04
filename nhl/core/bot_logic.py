@@ -600,6 +600,14 @@ class NhlBot(BaseSportBot):
             p.update(Proba=b["p_final"], EV=b["ev"], MiseNum=b["mise"], Mise=f"{b['mise']} U",
                      CoteSeuil=b["cote_seuil"])
             (final_picks_but if b["market"] == "but" else final_picks_ast).append(p)
+        # Contexte du match (fiches privées admin) : affiche, heure
+        for mid in wave_ids:
+            mi = self.compos_en_memoire[mid]["match_info"]
+            teams = {loaders.TEAM_MAPPING.get(mi["home"], mi["home"]), loaders.TEAM_MAPPING.get(mi["away"], mi["away"])}
+            for p in final_picks_but + final_picks_ast:
+                if p["Equipe"] in teams:
+                    full = [loaders.REVERSE_TEAM_MAPPING.get(t, t) for t in (mi["home"], mi["away"])]
+                    p.update(Match=f"{full[0]} vs {full[1]}", Heure=mi.get("time", ""))
         logger.info(f"  Candidats avec proba : {len(cands)} | Paris retenus : {len(selected)} "
                     f"(but {len(final_picks_but)}, ast {len(final_picks_ast)})")
 
@@ -616,6 +624,11 @@ class NhlBot(BaseSportBot):
         self.telegram.send_message(msg)
 
         if not is_early:
+            # Fiche privée par pick (boutons Pris / Skip) : seul l'admin les voit
+            for market, picks in (("but", final_picks_but), ("ast", final_picks_ast)):
+                for p in picks:
+                    if p.get("Ref"):
+                        self.telegram.send_pick_card(p, market)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
 
     # Plafonds exposés pour les tests (délègue au module kelly)

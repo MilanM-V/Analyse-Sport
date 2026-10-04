@@ -36,15 +36,22 @@ def find_cross_duo(list1: List[Dict], list2: List[Dict]) -> Optional[Tuple[Dict,
     return None
 
 
-def _pick_line(r: Dict[str, Any]) -> str:
-    """Suffixe d'une ligne de pick.
+def format_match_time(raw: str) -> str:
+    """'04.10. 20:00' (format de scraper.py) -> '20h00' ; valeur brute si illisible."""
+    try:
+        return datetime.strptime(raw.strip()[-5:], "%H:%M").strftime("%Hh%M")
+    except (ValueError, AttributeError):
+        return raw or ""
 
-    Mode proxy (CoteSeuil présente) : seulement la cote minimale à trouver sur un book FR,
-    la mise et la référence pour /pris — la cote proxy US n'est pas affichée.
+
+def _pick_line(r: Dict[str, Any]) -> str:
+    """Suffixe d'une ligne de pick (message du canal).
+
+    Mode proxy (CoteSeuil présente) : seulement la cote minimale à trouver sur un book FR
+    et la mise — ni la cote proxy US, ni la référence (réservée aux fiches privées admin).
     """
     if r.get('CoteSeuil'):
-        ref = f" | <code>{r['Ref']}</code>" if r.get('Ref') else ""
-        return f" — à prendre si cote &gt; <b>{r['CoteSeuil']:.2f}</b> | Mise: {r.get('Mise', '1 U')}{ref}"
+        return f" — à prendre si cote &gt; <b>{r['CoteSeuil']:.2f}</b> | Mise: {r.get('Mise', '1 U')}"
     if r.get('Cote'):
         edge = (r.get('Proba', 0) * r['Cote'] - 1) * 100
         return f" @{r['Cote']:.2f} chez {r.get('Bookmaker', 'Inconnu')} | Edge: {edge:.1f}% | Mise: {r.get('Mise', '1 U')}"
@@ -124,7 +131,7 @@ def format_telegram_v18(
         a_abbr = loaders.TEAM_MAPPING.get(m['away'], m['away'])
         
         time_str = m.get('time', '')
-        time_display = f" ({time_str})" if time_str else ""
+        time_display = f" 🕒 {format_match_time(time_str)}" if time_str else ""
 
         msg += f"<b>Match {t1_full} vs {t2_full}{time_display} :</b>\n"
 

@@ -5,8 +5,9 @@ from datetime import datetime
 from typing import Optional, Any, Dict, List, Callable
 from functools import wraps
 
-from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Application, CallbackQueryHandler
+from telegram import Bot, ForceReply, Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes, Application, CallbackQueryHandler,
+                          MessageHandler, filters)
 import asyncio
 import datetime as dt
 from zoneinfo import ZoneInfo
@@ -57,6 +58,31 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Exception lors de l'envoi Telegram : {e}")
 
+    def send_pick_card(self, pick: Dict[str, Any], market: str) -> None:
+        """Envoie à l'admin (chat privé) la fiche d'un pick avec les boutons Pris / Skip.
+
+        Args:
+            pick: pick enrichi (Joueur, Ref, CoteSeuil, Mise, IsHome, Match, Heure).
+            market: 'but' ou 'ast'.
+        """
+        admin_id = os.getenv("TELEGRAM_ADMIN_ID")
+        if not self.enabled or not admin_id or not pick.get("Ref"):
+            return
+        ref = pick["Ref"]
+        payload = {
+            "chat_id": admin_id,
+            "text": pick_card_text(pick, market),
+            "parse_mode": "HTML",
+            "reply_markup": {"inline_keyboard": [[
+                {"text": "✅ Pris", "callback_data": f"pick:take:{ref}"},
+                {"text": "⏭️ Skip", "callback_data": f"pick:skip:{ref}"},
+            ]]},
+        }
+        try:
+            safe_post(f"https://api.telegram.org/bot{self.token}/sendMessage", json=payload, timeout=10)
+        except Exception as e:
+            logger.error(f"Fiche privée non envoyée pour {pick.get('Joueur')} ({ref}) : {e}")
+
     def send_crash_alert(self, error: Exception, context: str = "Bot Principal") -> None:
         """
         Sends an emergency crash notification via Telegram.
@@ -94,6 +120,32 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Impossible d'envoyer l'alerte crash Telegram : {e}")
 
+def pick_card_text(p: Dict[str, Any], market: str) -> str:
+    """Texte HTML de la fiche privée d'un pick (contexte du match + cote seuil + mise)."""
+    from nhl.core.formatter import format_match_time
+    emoji, label = ("\U0001f525", "Buteur") if market == "but" else ("\U0001f170\ufe0f", "Passeur")
+    lieu = "\U0001f3e0" if p.get("IsHome") else "\u2708\ufe0f"
+    heure = f" · \U0001f552 {format_match_time(p['Heure'])}" if p.get("Heure") else ""
+    seuil = f"{p['CoteSeuil']:.2f}" if p.get("CoteSeuil") else "?"
+    return (f"{emoji} <b>{p['Joueur']}</b> {lieu} — {label}\n"
+            f"{p.get('Match', '')}{heure}\n"
+            f"à prendre si cote &gt; <b>{seuil}</b> · {p.get('Mise', '')}  <code>{p.get('Ref', '')}</code>")
+
+
+def parse_odds_reply(text: str) -> Optional[tuple]:
+    """'3.05', '3,05' ou '3.05 betclic' -> (3.05, 'betclic' | None) ; None si illisible."""
+    parts = (text or "").strip().split()
+    if not parts:
+        return None
+    try:
+        cote = float(parts[0].replace(",", "."))
+    except ValueError:
+        return None
+    if cote <= 1.01 or cote > 100:
+        return None
+    return cote, (parts[1].lower() if len(parts) > 1 else None)
+
+
 def handle_pick_command(args: List[str], taken: bool) -> str:
     """Logique des commandes /pris et /skip (sans dépendance à Telegram, testable).
 
@@ -109,10 +161,10 @@ def handle_pick_command(args: List[str], taken: bool) -> str:
     if taken:
         if len(args) < 2:
             return "Usage : /pris <ref> <cote> [book]   ex. /pris B12 3.05 betclic"
-        try:
-            cote = float(args[1].replace(",", "."))
-        except ValueError:
+        parsed = parse_odds_reply(args[1])
+        if parsed is None:
             return f"❌ Cote invalide : {args[1]}"
+        cote = parsed[0]
         book = args[2].lower() if len(args) > 2 else None
         r = record_pick_decision(args[0], cote, book)
     else:
@@ -168,7 +220,7 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handler for /start command."""
         if update.message:
-            await update.message.reply_text("🏒 NHL Bot V14 Actif ! Commandes:\n/status - État du bot\n/roi - Statistiques SQLite\n/portfolio - Solde\n/deposit - Ajouter des fonds\n/withdraw - Retirer des fonds\n/pause - Stopper les envois\n/resume - Reprendre\n/force - Lancer un scan\n/pris B12 3.05 [book] - Pari pris à cette cote\n/skip B12 - Pari non pris (cote trop basse)")
+            await update.message.reply_text("🏒 NHL Bot V14 Actif ! Commandes:\n/status - État du bot\n/roi - Statistiques SQLite\n/portfolio - Solde\n/deposit - Ajouter des fonds\n/withdraw - Retirer des fonds\n/pause - Stopper les envois\n/resume - Reprendre\n/force - Lancer un scan\n\nChaque pick t'arrive ici en privé avec les boutons ✅ Pris / ⏭️ Skip.\n/pris B12 3.05 [book] - Corriger : pari pris à cette cote\n/skip B12 - Corriger : pari non pris")
 
     @admin_only
     async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -348,6 +400,49 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         if update.message:
             await update.message.reply_text(handle_pick_command(context.args or [], taken=False))
 
+    def _is_admin(update: Update) -> bool:
+        admin_id = os.getenv("TELEGRAM_ADMIN_ID")
+        return bool(admin_id) and update.effective_user is not None and str(update.effective_user.id) == admin_id
+
+    async def pick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Boutons des fiches privées : pick:take:<ref> / pick:skip:<ref>."""
+        query = update.callback_query
+        if not _is_admin(update):
+            await query.answer("Accès refusé", show_alert=True)
+            return
+        await query.answer()
+        _, action, ref = query.data.split(":", 2)
+        card = query.message.text_html if query.message else ""
+        if action == "skip":
+            reply = handle_pick_command([ref], taken=False)
+            await query.edit_message_text(f"{card}\n\n{reply}", parse_mode="HTML")
+            return
+        context.user_data["await_odds"] = {"ref": ref, "chat_id": query.message.chat_id,
+                                           "message_id": query.message.message_id, "card": card}
+        await query.message.reply_text(f"À quelle cote as-tu pris {ref} ? (ex. 3.05 betclic)",
+                                       reply_markup=ForceReply(selective=True))
+
+    async def odds_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Réponse texte « 3.05 [book] » après un clic sur Pris."""
+        pending = context.user_data.get("await_odds")
+        if not pending or not _is_admin(update) or not update.message:
+            return
+        parsed = parse_odds_reply(update.message.text)
+        if parsed is None:
+            await update.message.reply_text("❌ Cote illisible. Réponds par exemple : 3.05 betclic")
+            return
+        cote, book = parsed
+        reply = handle_pick_command([pending["ref"], str(cote)] + ([book] if book else []), taken=True)
+        context.user_data.pop("await_odds", None)
+        await update.message.reply_text(reply)
+        try:
+            await context.bot.edit_message_text(chat_id=pending["chat_id"], message_id=pending["message_id"],
+                                                text=f"{pending['card']}\n\n{reply}", parse_mode="HTML")
+        except Exception as e:
+            logger.warning(f"Fiche {pending['ref']} non mise à jour : {e}")
+
+    app.add_handler(CallbackQueryHandler(pick_callback, pattern="^pick:"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, odds_reply))
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("force", force_cmd))
