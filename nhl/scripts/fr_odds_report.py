@@ -130,7 +130,8 @@ def price_strategy(w: pd.DataFrame, seuil: float) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DB)
-    ap.add_argument("--moment", default="vague", choices=["vague", "cloture"])
+    ap.add_argument("--moment", default="vague", choices=["apercu", "vague", "cloture"],
+                    help="apercu = compos probables (16h30), vague = picks confirmés, cloture = T-5")
     ap.add_argument("--seuil", type=float, default=0.04, help="EV minimale contre le prix juste Pinnacle")
     a = ap.parse_args()
     w = load(a.db, a.moment)

@@ -35,8 +35,9 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
     Args:
         players_map: Dict {Nom_Joueur: Equipe}.
         games: affiches du soir [(domicile, extérieur)], abréviations ou noms complets.
-        log_moment: 'vague' ou 'cloture' : journalise les cotes de tous les joueurs dans la
-            table book_odds (books français, Pinnacle, médiane US). None : pas de journalisation.
+        log_moment: 'apercu' (compos probables), 'vague' (picks confirmés) ou 'cloture' (T-5) :
+            journalise les cotes de tous les joueurs dans la table book_odds (books français,
+            Pinnacle, médiane US). None : pas de journalisation.
         session_date: date de session NHL (obligatoire avec log_moment).
     Returns:
         Dict des cotes: {'McDavid': {'BUTEUR': 2.2, 'PASSEUR': 1.8}}

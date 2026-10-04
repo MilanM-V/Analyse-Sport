@@ -8,8 +8,9 @@ entraîner un jour des features de marché :
 - `props_log` : cotes points et tirs cadrés (lignes 0.5 / 1.5 / 2.5), derrière
   `[betting] log_extra_markets` (désactivé par défaut : double la consommation de crédits).
 - `book_odds` : pour chaque joueur évalué, cotes buteur / passeur des books français
-  (nhl/core/fr_odds.py), Pinnacle Oui / Non et médiane US, au moment des picks (`vague`) et à
-  T-5 (`cloture`). Base de la calibration du prix et du suivi de la stratégie « prix ».
+  (nhl/core/fr_odds.py), Pinnacle Oui / Non et médiane US, à l'aperçu (`apercu`, compos
+  probables), aux picks confirmés (`vague`) et à T-5 (`cloture`). Base de la calibration du
+  prix, du suivi de la stratégie « prix » et de la comparaison jouer tôt / jouer tard.
 """
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -56,7 +57,7 @@ def log_book_odds(results: Dict[str, Dict[str, Any]], players_map: Dict[str, str
         players_map: {joueur: abréviation de l'équipe} des joueurs évalués.
         games: affiches [(domicile, extérieur)] du lot, noms complets ou abréviations.
         session_date: date de session NHL.
-        moment: 'vague' (au moment des picks) ou 'cloture' (T-5).
+        moment: 'apercu' (compos probables), 'vague' (picks confirmés) ou 'cloture' (T-5).
 
     Returns:
         Nombre de lignes écrites.

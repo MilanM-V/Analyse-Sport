@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from shared.utils import paris_now
 import subprocess
 import sys
-from typing import Dict, List, Any, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 # Ajout du dossier racine au sys.path pour permettre l'exécution standalone
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +25,40 @@ logger = logging.getLogger("NHL.BotLogic")
 
 from shared.base_bot import BaseSportBot
 from shared.portfolio import Portfolio
+
+PREVIEW_BANNER = ("<b>\U0001f440 APERÇU — compos probables, picks non définitifs</b>\n"
+                  "<i>Picks confirmés 17 min avant chaque match, ou dès que les gardiens sont confirmés.</i>\n\n")
+
+
+def plan_wave_sends(waves: List[List[str]], is_complete: Callable[[List[str]], bool],
+                    is_forced: Callable[[List[str]], bool], is_confirmed: Callable[[str], bool],
+                    previewed: Set[str]) -> Tuple[List[str], List[str]]:
+    """Répartit les vagues en attente entre aperçu et envoi confirmé.
+
+    - Confirmé : compos de tout le créneau publiées ET les deux gardiens de chaque match confirmés
+      (RotoWire « Confirmed »), ou moins de `force_envoi_min_avant` minutes avant le 1er match.
+    - Aperçu : compos du créneau publiées mais pas encore confirmées ; un match n'a qu'un aperçu.
+
+    Args:
+        waves: vagues de matchs en attente (ni confirmés ni envoyés).
+        is_complete: la vague a-t-elle les compos de tous les matchs de son créneau ?
+        is_forced: le 1er match de la vague est-il imminent ?
+        is_confirmed: les deux gardiens du match sont-ils confirmés ?
+        previewed: matchs dont l'aperçu est déjà parti.
+
+    Returns:
+        (matchs à envoyer en aperçu, matchs à envoyer confirmés).
+    """
+    preview_ids: List[str] = []
+    confirmed_ids: List[str] = []
+    for wave in waves:
+        complete = is_complete(wave)
+        if is_forced(wave) or (complete and all(is_confirmed(m) for m in wave)):
+            confirmed_ids += wave
+        elif complete:
+            preview_ids += [m for m in wave if m not in previewed]
+    return preview_ids, confirmed_ids
+
 
 class NhlBot(BaseSportBot):
     """
@@ -50,7 +84,8 @@ class NhlBot(BaseSportBot):
         self.matches_du_jour: List[Dict[str, Any]] = []
         self.compos_en_memoire: Dict[str, Dict[str, Any]] = {}
         self.vagues_envoyees: Set[str] = set()
-        self.matchs_envoyes: Set[str] = set()
+        self.matchs_envoyes: Set[str] = set()   # picks confirmés envoyés (comptés dans les stats)
+        self.apercus_envoyes: Set[str] = set()  # aperçus envoyés (compos probables, non comptés)
         self._scan_lock = threading.Lock()
 
         self.ecart_max_vague_min: int = cfg.wave.ecart_max_min
@@ -82,14 +117,17 @@ class NhlBot(BaseSportBot):
         if state.get("session_date") == self.get_nhl_session_date():
             self.matchs_envoyes.update(state.get("matchs", []))
             self.vagues_envoyees.update(state.get("vagues", []))
-            logger.info(f"{len(self.matchs_envoyes)} match(s) déjà envoyé(s) aujourd'hui rechargé(s).")
+            self.apercus_envoyes.update(state.get("apercus", []))
+            logger.info(f"{len(self.matchs_envoyes)} match(s) confirmé(s) et {len(self.apercus_envoyes)} "
+                        "aperçu(s) déjà envoyés aujourd'hui rechargés.")
 
     def _save_sent_matches(self) -> None:
-        """Écrit l'état des matchs envoyés sur disque."""
+        """Écrit l'état des matchs envoyés (aperçus et picks confirmés) sur disque."""
         try:
             with open(self.sent_state_path, "w", encoding="utf-8") as f:
                 json.dump({"session_date": self.get_nhl_session_date(),
                            "matchs": sorted(self.matchs_envoyes),
+                           "apercus": sorted(self.apercus_envoyes),
                            "vagues": sorted(self.vagues_envoyees)}, f)
         except OSError as e:
             logger.error(f"Impossible de sauvegarder l'état des matchs envoyés : {e}")
@@ -300,14 +338,12 @@ class NhlBot(BaseSportBot):
                 compo = scraper.get_lineups(match_id, m['home'], m['away'])
 
                 if isinstance(compo, dict):
-                    logger.info("    COMPO TROUVÉE (ou mise à jour) ! Mise en mémoire.")
+                    statut = "gardiens confirmés" if compo.get("confirmed") else "compo probable"
+                    logger.info(f"    COMPO TROUVÉE (ou mise à jour, {statut}) ! Mise en mémoire.")
                     self.compos_en_memoire[match_id] = {"match_info": m, "compo": compo}
                     self.matchs_traites.add(match_id)
                 else:
                     logger.info(f"   {compo} — On réessaiera au prochain cycle.")
-
-            # L'Early Pass à 17:00 a été retiré à la demande de l'utilisateur.
-            # self.evaluate_waves(self.matches_du_jour) continue de gérer les scans normaux.
 
             self.evaluate_waves(self.matches_du_jour)
         except Exception as e:
@@ -316,50 +352,51 @@ class NhlBot(BaseSportBot):
         finally:
             self._scan_lock.release()
 
-    def evaluate_early_pass(self) -> None:
-        """Envoie un message informatif avec les compos probables à 17h."""
-        if not self.compos_en_memoire:
-            return
-        
-        # Ne pas renvoyer les matchs déjà envoyés par evaluate_waves()
-        ready_ids = [mid for mid in self.compos_en_memoire if mid not in self.matchs_envoyes]
-        if ready_ids:
-            wave_label = f"PREMIER JET 17H - COMPOS PROBABLES ({len(ready_ids)} matchs)"
-            logger.info(f"   Early Pass {wave_label}   ENVOI !")
-            self.run_analysis_and_send(ready_ids, wave_label, is_early=True)
-
     def evaluate_waves(self, matches_du_jour: List[Dict[str, Any]]) -> None:
-        """Processes available lineups into waves and triggers analysis."""
+        """Envoie les vagues prêtes en deux temps (cf. plan_wave_sends).
+
+        1. Aperçu : dès que les compos probables d'un créneau sont publiées (à partir de 16h30),
+           picks calculés et affichés mais ni enregistrés ni comptés.
+        2. Picks confirmés : quand les deux gardiens de chaque match du créneau sont confirmés,
+           ou au plus tard `force_envoi_min_avant` minutes avant le 1er match. Nouvelle analyse
+           (compos et cotes du moment) : ce sont ces picks qui sont enregistrés et comptés.
+        """
         if not self.compos_en_memoire:
             return
-
-        # Filtrer les matchs déjà envoyés pour éviter les doublons
         pending_ids = [mid for mid in self.compos_en_memoire if mid not in self.matchs_envoyes]
         if not pending_ids:
             return
+        preview_ids, confirmed_ids = plan_wave_sends(
+            self.build_waves(pending_ids),
+            is_complete=lambda w: self.is_wave_complete(w, matches_du_jour),
+            is_forced=self.should_force_send,
+            is_confirmed=lambda mid: bool(self.compos_en_memoire[mid]["compo"].get("confirmed")),
+            previewed=self.apercus_envoyes)
 
-        waves = self.build_waves(pending_ids)
-        ready_ids = []
-        
-        for wave in waves:
-            wave_key = self.compos_en_memoire[wave[0]]["match_info"]["time"]
-            if wave_key in self.vagues_envoyees:
-                continue
-
-            if self.is_wave_complete(wave, matches_du_jour) or self.should_force_send(wave):
-                self.vagues_envoyees.add(wave_key)
-                for mid in wave:
-                    self.matchs_envoyes.add(mid)
-                    ready_ids.append(mid)
-
-        if ready_ids:
+        if confirmed_ids:
+            for mid in confirmed_ids:
+                self.matchs_envoyes.add(mid)
+                self.vagues_envoyees.add(self.compos_en_memoire[mid]["match_info"]["time"])
             self._save_sent_matches()
-            wave_label = f"Matchs du Jour ({len(ready_ids)} matchs)"
-            logger.info(f"   Vagues combinées {wave_label}   ENVOI !")
-            self.run_analysis_and_send(ready_ids, wave_label)
+            wave_label = f"PICKS CONFIRMÉS ({len(confirmed_ids)} match{'s' if len(confirmed_ids) > 1 else ''})"
+            logger.info(f"   {wave_label}   ENVOI !")
+            self.run_analysis_and_send(confirmed_ids, wave_label)
+        if preview_ids:
+            self.apercus_envoyes.update(preview_ids)
+            self._save_sent_matches()
+            wave_label = f"APERÇU ({len(preview_ids)} match{'s' if len(preview_ids) > 1 else ''})"
+            logger.info(f"   {wave_label}   ENVOI !")
+            self.run_analysis_and_send(preview_ids, wave_label, preview=True)
 
-    def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
-        """Performs analysis on a wave of matches and sends results."""
+    def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, preview: bool = False) -> None:
+        """Analyse une vague et envoie ses picks.
+
+        Args:
+            wave_ids: matchs de la vague.
+            wave_label: libellé du message (« APERÇU (3 matchs) », « PICKS CONFIRMÉS (3 matchs) »).
+            preview: aperçu sur compos probables : message seulement (ni base, ni fiches /pris, ni
+                contexte de match) ; les cotes lues sont journalisées avec le moment « apercu ».
+        """
         from nhl.core.market_filter import MIN_GP, evaluate_early_season
         from nhl.core.features import FEATURES_VERSION
         from nhl.core.betting import select_bets
@@ -559,8 +596,8 @@ class NhlBot(BaseSportBot):
             try:
                 odds_map = loop.run_until_complete(fetch_nhl_odds(
                     players_to_fetch, games=matches_soir,
-                    log_moment=None if is_early else "vague", session_date=self.get_nhl_session_date()))
-                if not is_early:
+                    log_moment="apercu" if preview else "vague", session_date=self.get_nhl_session_date()))
+                if not preview:
                     self._log_market_data(loop, matches_soir, wave_ids)
             finally:
                 loop.close()
@@ -638,8 +675,8 @@ class NhlBot(BaseSportBot):
                     f"(but {len(final_picks_but)}, ast {len(final_picks_ast)})")
 
         # Enregistrement AVANT l'envoi : le message affiche la référence (B12/A7) de chaque
-        # pick, utilisée par /pris et /skip.
-        if not is_early:
+        # pick, utilisée par /pris et /skip. Les aperçus ne sont ni enregistrés ni comptés.
+        if not preview:
             session_date = self.get_nhl_session_date()
             log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
 
@@ -647,9 +684,11 @@ class NhlBot(BaseSportBot):
             final_picks_but, final_picks_ast, [],
             wave_label, wave_ids, self.compos_en_memoire
         )
+        if preview:
+            msg = PREVIEW_BANNER + msg
         self.telegram.send_message(msg)
 
-        if not is_early:
+        if not preview:
             # Fiche privée par pick (boutons Pris / Skip) : seul l'admin les voit
             for market, picks in (("but", final_picks_but), ("ast", final_picks_ast)):
                 for p in picks:
@@ -693,6 +732,7 @@ class NhlBot(BaseSportBot):
             self.compos_en_memoire.clear()
             self.vagues_envoyees.clear()
             self.matchs_envoyes.clear()
+            self.apercus_envoyes.clear()
             self._save_sent_matches()
             logger.info("Nettoyage de fin de journée terminé.")
 

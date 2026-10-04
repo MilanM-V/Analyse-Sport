@@ -125,10 +125,11 @@ def _get_rotowire_soup():
 def _parse_rotowire_team(ul_element) -> dict:
     team_data = {
         "goalie": "",
+        "goalie_confirmed": False,
         "lines": {"LINE 1": [], "LINE 2": [], "LINE 3": [], "LINE 4": [], "POWER PLAY #1": [], "POWER PLAY #2": []},
         "injuries": set()
     }
-    
+
     if not ul_element:
         return team_data
 
@@ -138,6 +139,9 @@ def _parse_rotowire_team(ul_element) -> dict:
         a_tag = goalie_item.select_one('a')
         if a_tag:
             team_data["goalie"] = a_tag.text.strip()
+        # Sous le nom : « Confirmed » (.is-confirmed) ou « Expected » (.is-expected). C'est le seul
+        # statut de confirmation de RotoWire : les unités de jeu restent des projections.
+        team_data["goalie_confirmed"] = goalie_item.select_one('.is-confirmed') is not None
             
     # Lignes et Blessures
     current_title = None
@@ -229,6 +233,10 @@ def get_lineups(match_id, home="", away=""):
         "f1_ext":  f1_ext,
         "f2_dom":  f2_dom,
         "f2_ext":  f2_ext,
+        # Compo « sûre » = les deux gardiens confirmés (déclenche l'envoi des picks confirmés)
+        "goalDomConfirmed": home_data["goalie_confirmed"],
+        "goalextConfirmed": away_data["goalie_confirmed"],
+        "confirmed": home_data["goalie_confirmed"] and away_data["goalie_confirmed"],
     }
 
 
