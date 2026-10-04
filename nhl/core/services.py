@@ -94,6 +94,45 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Impossible d'envoyer l'alerte crash Telegram : {e}")
 
+def handle_pick_command(args: List[str], taken: bool) -> str:
+    """Logique des commandes /pris et /skip (sans dépendance à Telegram, testable).
+
+    Args:
+        args: arguments de la commande : [ref, cote, book?] pour /pris, [ref] pour /skip.
+        taken: True pour /pris, False pour /skip.
+
+    Returns:
+        Le texte de réponse à envoyer.
+    """
+    from nhl.config.settings import cfg
+    from nhl.core.database import record_pick_decision
+    if taken:
+        if len(args) < 2:
+            return "Usage : /pris <ref> <cote> [book]   ex. /pris B12 3.05 betclic"
+        try:
+            cote = float(args[1].replace(",", "."))
+        except ValueError:
+            return f"❌ Cote invalide : {args[1]}"
+        book = args[2].lower() if len(args) > 2 else None
+        r = record_pick_decision(args[0], cote, book)
+    else:
+        if not args:
+            return "Usage : /skip <ref>   ex. /skip B12"
+        r = record_pick_decision(args[0])
+    if not r["ok"]:
+        return f"❌ {r['error']}"
+    if not taken:
+        return f"⏭️ {r['joueur']} : pari non pris (exclu du ROI)."
+    if r["under_threshold"]:
+        return (f"⚠️ {r['joueur']} @{cote:.2f} est SOUS la cote seuil {r['cote_seuil']:.2f} : "
+                "EV insuffisante, ne pas parier. Enregistré quand même — /skip pour annuler.")
+    if not cfg.mode.paper_trading and r.get("mise"):
+        from shared.portfolio import Portfolio
+        market = "BUTEUR" if r["table"] == "picks" else "PASSEUR"
+        Portfolio().log_bet("nhl", r["joueur"], market, cote, r["mise"], r["id"])
+    return f"✅ {r['joueur']} pris @{cote:.2f}{' chez ' + book if book else ''} (seuil {r['cote_seuil'] or 0:.2f})."
+
+
 def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     """
     Factory to create the interactive telegram application with handlers.
@@ -129,7 +168,7 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handler for /start command."""
         if update.message:
-            await update.message.reply_text("🏒 NHL Bot V14 Actif ! Commandes:\n/status - État du bot\n/roi - Statistiques SQLite\n/portfolio - Solde\n/deposit - Ajouter des fonds\n/withdraw - Retirer des fonds\n/pause - Stopper les envois\n/resume - Reprendre\n/force - Lancer un scan")
+            await update.message.reply_text("🏒 NHL Bot V14 Actif ! Commandes:\n/status - État du bot\n/roi - Statistiques SQLite\n/portfolio - Solde\n/deposit - Ajouter des fonds\n/withdraw - Retirer des fonds\n/pause - Stopper les envois\n/resume - Reprendre\n/force - Lancer un scan\n/pris B12 3.05 [book] - Pari pris à cette cote\n/skip B12 - Pari non pris (cote trop basse)")
 
     @admin_only
     async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -297,6 +336,18 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         except Exception as e:
             await update.message.reply_text(f"❌ Erreur : {e}")
 
+    @admin_only
+    async def pris_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/pris <ref> <cote> [book] : pari pris à la cote réellement trouvée."""
+        if update.message:
+            await update.message.reply_text(handle_pick_command(context.args or [], taken=True))
+
+    @admin_only
+    async def skip_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/skip <ref> : aucune cote FR au-dessus de la cote seuil, pari non pris."""
+        if update.message:
+            await update.message.reply_text(handle_pick_command(context.args or [], taken=False))
+
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("force", force_cmd))
@@ -309,6 +360,8 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     app.add_handler(CommandHandler("resume", resume_cmd))
     app.add_handler(CommandHandler("deposit", deposit_cmd))
     app.add_handler(CommandHandler("withdraw", withdraw_cmd))
+    app.add_handler(CommandHandler("pris", pris_cmd))
+    app.add_handler(CommandHandler("skip", skip_cmd))
 
     async def job_scan_cycle(context: ContextTypes.DEFAULT_TYPE) -> None:
         """Fallback background job for scanning."""

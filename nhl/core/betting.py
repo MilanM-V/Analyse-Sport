@@ -4,12 +4,15 @@ core/betting.py — Stratégie de mise (audit P2), utilisée à l'identique par 
 1. Probabilité finale = mélange du modèle et du no-vig Pinnacle :
        p = w * p_model + (1 - w) * p_novig      (w appris sur la saison de validation)
    Sans Pinnacle, p = p_model et l'EV exigée est majorée (`no_pinnacle_extra_ev`).
-2. EV calculée UNIQUEMENT sur la cote du book où l'on parie (Winamax en prod).
+2. EV calculée UNIQUEMENT sur la cote d'exécution. En prod, aucun book FR ne cote les props
+   dans The Odds API : la cote d'exécution est un PROXY (médiane US × exec_haircut) et chaque
+   pari porte une `cote_seuil` = cote minimale à trouver sur un book FR pour rester value.
 3. Seuils d'EV par tranche de cote lus dans [betting] ev_min_* (à défaut [thresholds.ev_adaptive]).
 4. Kelly fractionné sur la bankroll réelle, SANS plancher (mise < min => pas de pari),
    plafonds par pari, par match (paris corrélés) et par jour.
 """
-from dataclasses import dataclass, field
+import math
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from nhl.config.settings import cfg
@@ -73,6 +76,14 @@ def ev_threshold(cote: float, params: BetParams, has_pinnacle: bool = True) -> f
     return thr + (0.0 if has_pinnacle else params.no_pinnacle_extra_ev)
 
 
+def min_odds(p_final: float, threshold: float) -> float:
+    """Cote minimale à obtenir pour que l'EV atteigne `threshold` : (1 + seuil) / p.
+
+    Arrondie au centième SUPÉRIEUR (l'EV reste ≥ seuil à la cote affichée).
+    """
+    return math.ceil((1.0 + threshold) / p_final * 100 - 1e-9) / 100
+
+
 def kelly_units(p: float, cote: float, bankroll: float, params: BetParams, market: str) -> float:
     """Mise Kelly fractionnée en unités, arrondie à 0,5 U, sans plancher artificiel."""
     b = cote - 1.0
@@ -99,7 +110,8 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
         current_exposure: mises déjà engagées aujourd'hui.
 
     Returns:
-        Les candidats retenus, enrichis de p_final, ev, mise (unités > 0), triés par EV.
+        Les candidats retenus, enrichis de p_final, ev, cote_seuil (cote minimale à
+        prendre) et mise (unités > 0), triés par EV.
     """
     params = params or BetParams.from_config()
     scored = []
@@ -113,9 +125,10 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
         has_pin = pnv is not None and pnv == pnv
         p = blend_probability(c["p_model"], pnv, params.blend_w[m])
         ev = p * cote - 1.0
-        if ev < ev_threshold(cote, params, has_pin):
+        thr = ev_threshold(cote, params, has_pin)
+        if ev < thr:
             continue
-        scored.append({**c, "p_final": p, "ev": ev})
+        scored.append({**c, "p_final": p, "ev": ev, "cote_seuil": min_odds(p, thr)})
 
     scored.sort(key=lambda x: x["ev"], reverse=True)
     out, per_game, total = [], {}, current_exposure

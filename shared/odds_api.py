@@ -12,7 +12,7 @@ import logging
 import re
 import unicodedata
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv
 
 from shared.telegram_hub import send_telegram
@@ -28,6 +28,30 @@ def _norm(name: str) -> str:
     """Nom normalisé : sans accents, ponctuation ni casse."""
     s = "".join(c for c in unicodedata.normalize("NFD", str(name)) if unicodedata.category(c) != "Mn")
     return " ".join(re.sub(r"[^a-z ]", " ", s.lower()).split())
+
+
+# Books « soft » US dont la médiane sert de proxy au prix FR (méthode du backtest)
+SOFT_BOOKS = {
+    "draftkings": "DraftKings", "fanduel": "FanDuel", "fanatics": "Fanatics", "bovada": "Bovada",
+    "betmgm": "BetMGM", "williamhill_us": "Caesars", "betrivers": "BetRivers",
+}
+
+
+def apply_proxy(d: Dict[str, Any], exec_haircut: float, pin_haircut: float) -> None:
+    """Cote d'exécution proxy d'un joueur/marché (modifie `d` en place).
+
+    Médiane des cotes soft US × exec_haircut ; à défaut, cote « Oui » Pinnacle × pin_haircut
+    (Pinnacle a moins de marge, d'où une décote plus forte). Rien si aucune des deux.
+    """
+    soft = sorted(d.get("soft") or [])
+    if soft:
+        n = len(soft)
+        med = soft[n // 2] if n % 2 else (soft[n // 2 - 1] + soft[n // 2]) / 2
+        d.update(soft_median=med, price=round(med * exec_haircut, 3), bookmaker="Proxy US",
+                 price_source="soft", is_winamax=False)
+    elif d.get("pin_yes"):
+        d.update(price=round(d["pin_yes"] * pin_haircut, 3), bookmaker="Proxy Pinnacle",
+                 price_source="pinnacle", is_winamax=False)
 
 
 def match_player(api_name: str, candidates: Iterable[str]) -> Optional[str]:
@@ -76,6 +100,7 @@ class OddsAPIClient:
     async def fetch_odds(cls, sport: str, market: str, players_map: Dict[str, str], bookmaker: str = "winamax",
                          exec_only_winamax: bool = False,
                          exec_books: Optional[Iterable[str]] = None,
+                         proxy: Optional[Tuple[float, float]] = None,
                          team_names: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Récupère les cotes pour une liste de joueurs sur un marché donné.
@@ -90,11 +115,16 @@ class OddsAPIClient:
             exec_books: clés The Odds API des books où l'utilisateur peut parier
                 (ex. winamax_fr, betclic_fr). Prioritaire sur exec_only_winamax :
                 la cote d'exécution est la MEILLEURE parmi ces books.
+            proxy: (exec_haircut, pin_haircut). Si fourni, la cote d'exécution est un
+                proxy (aucun book FR ne cote les props) : médiane des books soft US ×
+                exec_haircut, sinon cote « Oui » Pinnacle × pin_haircut. Prioritaire
+                sur exec_books.
             team_names: {abréviation: nom complet} pour cibler les events
                 (les events The Odds API utilisent les noms complets).
             
         Returns:
-            Dict { "Nom_Joueur": { "MARCHE": {price, bookmaker, is_winamax, pin_yes, pin_no, p_novig} } }
+            Dict { "Nom_Joueur": { "MARCHE": {price, bookmaker, is_winamax, pin_yes, pin_no, p_novig,
+            soft_median, price_source} } }
         """
         if not ODDS_API_KEY or ODDS_API_KEY == "votre_cle_api_ici":
             logger.warning(f"Clé The Odds API manquante. Impossible de récupérer les cotes {sport}.")
@@ -156,8 +186,7 @@ class OddsAPIClient:
                 "unibet_fr": "Unibet",
                 "pmu_fr": "PMU",
                 "pinnacle": "Pinnacle",
-                "draftkings": "DraftKings",
-                "fanduel": "FanDuel"
+                **SOFT_BOOKS,
             }
             exec_set = set(exec_books) if exec_books else None
             coverage = Counter()  # nb de cotes "Oui/Over" par book : diagnostic de couverture
@@ -220,6 +249,10 @@ class OddsAPIClient:
                                     if side != "yes":
                                         continue
                                     coverage[bm_key] += 1
+                                    if bm_key in SOFT_BOOKS:
+                                        data.setdefault("soft", []).append(price)
+                                    if proxy is not None:
+                                        continue  # cote d'exécution calculée après coup (apply_proxy)
                                     if exec_set is not None:
                                         # Meilleure cote parmi les books où l'utilisateur peut parier
                                         if bm_key in exec_set and price > data.get("price", 0):
@@ -238,11 +271,16 @@ class OddsAPIClient:
                             if d and d.get("pin_yes") and d.get("pin_no") and "p_novig" not in d:
                                 iy, ino = 1.0 / d["pin_yes"], 1.0 / d["pin_no"]
                                 d["p_novig"] = iy / (iy + ino)
+                            if d and proxy is not None:
+                                apply_proxy(d, *proxy)
                 except Exception as e:
                     logger.error(f"Erreur connexion Odds API pour event {event_id}: {e}")
 
             logger.info(f"[OddsAPI] Couverture {market} (cotes Oui/Over par book) : {dict(coverage) or 'aucune'}")
-            if exec_set is not None and not any(coverage.get(b) for b in exec_set):
+            if proxy is not None:
+                src = Counter(d.get("price_source") for mk in results.values() for d in mk.values() if d.get("price"))
+                logger.info(f"[OddsAPI] Prix proxy {market} : {dict(src) or 'aucun'} (soft = médiane US, pinnacle = repli)")
+            elif exec_set is not None and not any(coverage.get(b) for b in exec_set):
                 logger.warning(f"[OddsAPI] Aucun book d'exécution ({sorted(exec_set)}) ne cote {market} : aucun pari possible.")
             return results
 
@@ -261,12 +299,16 @@ async def fetch_nhl_odds(players_map: Dict[str, str]) -> Dict[str, Dict[str, flo
     from nhl.config.settings import cfg
     # Cote d'exécution = meilleure cote parmi les books FR où l'utilisateur a un compte
     # ([betting] exec_books) ; Pinnacle sert de référence no-vig.
-    books = list(getattr(cfg.betting, "exec_books", ["winamax_fr"]))
+    # Mode "proxy" (défaut) : aucun book FR ne cote les props NHL dans The Odds API
+    # (test du 2026-10-04) → cote d'exécution = médiane US × exec_haircut ; l'utilisateur
+    # vérifie à la main que la cote FR dépasse la cote seuil du pick.
+    b = cfg.betting
+    books = list(getattr(b, "exec_books", ["winamax_fr"]))
+    proxy = ((b.exec_haircut, b.pin_haircut) if getattr(b, "exec_mode", "proxy") == "proxy" else None)
     tasks = [
-        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_goal_scorer_anytime', players_map,
-                                 exec_books=books, team_names=TEAM_ABBR_TO_FULL),
-        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_assists', players_map,
-                                 exec_books=books, team_names=TEAM_ABBR_TO_FULL)
+        OddsAPIClient.fetch_odds('icehockey_nhl', mk, players_map, exec_books=books, proxy=proxy,
+                                 team_names=TEAM_ABBR_TO_FULL)
+        for mk in ('player_goal_scorer_anytime', 'player_assists')
     ]
     
     res_buteur, res_assist = await asyncio.gather(*tasks)

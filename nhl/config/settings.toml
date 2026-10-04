@@ -72,9 +72,17 @@ semaphore_limit = 20
 # validation ET test (nhl/reports/PISTES_AMELIORATION.md) : EV ≥ 4 %, Kelly 1/6,
 # plafonds 5 U/match et 30 U/jour (phase `x_combo` : +32 % de paris, +49 % de gain net).
 markets = ["but", "ast"]
-# Books où l'utilisateur peut parier : la cote d'exécution est la meilleure d'entre eux.
+# Books où l'utilisateur peut parier (mode "books" : cote d'exécution = la meilleure d'entre eux).
 # Retirer ceux sans compte. Clés The Odds API (région eu).
 exec_books = ["winamax_fr", "betclic_fr", "unibet_fr", "pmu_fr"]
+# Aucun book FR ne cote les props NHL dans The Odds API (check_odds_coverage.py, 2026-10-04).
+# exec_mode = "proxy" : cote d'exécution = médiane books soft US × exec_haircut (méthode du
+# backtest), à défaut cote Pinnacle × pin_haircut ; le pick affiche la cote seuil à trouver
+# à la main sur un book FR. "books" : meilleure cote parmi exec_books (si un jour couverts).
+# Recalibrer les décotes avec nhl/scripts/calibrate_proxy.py (cotes saisies via /pris).
+exec_mode = "proxy"
+exec_haircut = 0.94
+pin_haircut = 0.90
 blend_w_but = 0.65           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle)
 blend_w_ast = 0.80
 cote_min_but = 1.5

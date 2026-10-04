@@ -579,6 +579,7 @@ class NhlBot(BaseSportBot):
                 p["Cote"] = odds_data.get("price")
                 p["Bookmaker"] = odds_data.get("bookmaker", "Inconnu")
                 p["PNovig"] = odds_data.get("p_novig")
+                p["PriceSource"] = odds_data.get("price_source")
                 pred = preds.get(p["Joueur"])
                 if market not in ml_models or not pred or market not in pred:
                     continue
@@ -596,10 +597,17 @@ class NhlBot(BaseSportBot):
                                current_exposure=self.portfolio.get_pending_exposure())
         for b in selected:
             p = b["_pick"]
-            p.update(Proba=b["p_final"], EV=b["ev"], MiseNum=b["mise"], Mise=f"{b['mise']} U")
+            p.update(Proba=b["p_final"], EV=b["ev"], MiseNum=b["mise"], Mise=f"{b['mise']} U",
+                     CoteSeuil=b["cote_seuil"])
             (final_picks_but if b["market"] == "but" else final_picks_ast).append(p)
         logger.info(f"  Candidats avec proba : {len(cands)} | Paris retenus : {len(selected)} "
                     f"(but {len(final_picks_but)}, ast {len(final_picks_ast)})")
+
+        # Enregistrement AVANT l'envoi : le message affiche la référence (B12/A7) de chaque
+        # pick, utilisée par /pris et /skip.
+        if not is_early:
+            session_date = self.get_nhl_session_date()
+            log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
 
         msg = format_telegram_v18(
             final_picks_but, final_picks_ast, [],
@@ -608,8 +616,6 @@ class NhlBot(BaseSportBot):
         self.telegram.send_message(msg)
 
         if not is_early:
-            session_date = self.get_nhl_session_date()
-            log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
 
     # Plafonds exposés pour les tests (délègue au module kelly)

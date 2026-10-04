@@ -151,6 +151,13 @@ def init_db():
         ("closing_p_novig", "REAL DEFAULT NULL"),
         ("model_version", "TEXT DEFAULT NULL"),
         ("features_json", "TEXT DEFAULT NULL"),
+        # Mode proxy (aucun book FR dans The Odds API) : cote seuil + cote réellement prise
+        ("cote_proxy", "REAL DEFAULT NULL"),
+        ("cote_seuil", "REAL DEFAULT NULL"),
+        ("price_source", "TEXT DEFAULT NULL"),
+        ("cote_reelle", "REAL DEFAULT NULL"),
+        ("book_reel", "TEXT DEFAULT NULL"),
+        ("pris", "INTEGER DEFAULT NULL"),
     ]
     
     for table in tables_to_fix:
@@ -228,6 +235,65 @@ def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Co
         
     return pick_id
 
+PICK_TABLES = {"B": "picks", "A": "picks_assists"}
+
+
+def pick_ref(table: str, pick_id: int) -> str:
+    """Référence courte affichée sur Telegram : B12 (buteur), A7 (passeur)."""
+    prefix = {v: k for k, v in PICK_TABLES.items()}[table]
+    return f"{prefix}{pick_id}"
+
+
+def get_pick_id(table: str, date: str, joueur: str, conn: Optional[sqlite3.Connection] = None) -> Optional[int]:
+    """Id d'un pick déjà enregistré pour (date, joueur), sinon None."""
+    own = conn is None
+    conn = conn or get_connection()
+    row = conn.execute(f"SELECT id FROM {table} WHERE date = ? AND joueur = ?", (date, joueur)).fetchone()
+    if own:
+        conn.close()
+    return row[0] if row else None
+
+
+def _parse_ref(ref: str) -> Optional[tuple]:
+    ref = ref.strip().lstrip("#").upper()
+    if len(ref) < 2 or ref[0] not in PICK_TABLES or not ref[1:].isdigit():
+        return None
+    return PICK_TABLES[ref[0]], int(ref[1:])
+
+
+def record_pick_decision(ref: str, cote: Optional[float] = None, book: Optional[str] = None) -> Dict[str, Any]:
+    """Enregistre la décision de l'utilisateur sur un pick (/pris ou /skip).
+
+    Args:
+        ref: Référence du pick (ex. "B12", "A7", "#B12").
+        cote: Cote réellement obtenue ; None = pari non pris (/skip).
+        book: Book où le pari a été pris (optionnel).
+
+    Returns:
+        {"ok": bool, "error"?: str, "joueur", "cote_seuil", "under_threshold": bool, "table", "id", "mise"}
+    """
+    parsed = _parse_ref(ref)
+    if parsed is None:
+        return {"ok": False, "error": f"Référence invalide : {ref} (attendu B12 ou A7)"}
+    table, pick_id = parsed
+    conn = get_connection()
+    try:
+        row = conn.execute(f"SELECT joueur, cote_seuil, mise FROM {table} WHERE id = ?", (pick_id,)).fetchone()
+        if row is None:
+            return {"ok": False, "error": f"Pick {ref} introuvable"}
+        joueur, seuil, mise = row
+        if cote is None:
+            conn.execute(f"UPDATE {table} SET pris = 0 WHERE id = ?", (pick_id,))
+        else:
+            conn.execute(f"UPDATE {table} SET pris = 1, cote_reelle = ?, book_reel = ? WHERE id = ?",
+                         (cote, book, pick_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "joueur": joueur, "cote_seuil": seuil, "table": table, "id": pick_id, "mise": mise,
+            "under_threshold": cote is not None and seuil is not None and cote < seuil}
+
+
 def insert_player(player_data: Dict[str, Any], conn: Optional[sqlite3.Connection] = None) -> None:
     """
     Inserts an evaluated player log into the 'players' table.
@@ -297,7 +363,10 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
     c = conn.cursor()
 
     params = []
-    query = f"SELECT {target_col}, cote, verdict FROM {table} WHERE {target_col} IS NOT NULL AND {target_col} != ''"
+    # Cote réellement obtenue (/pris) si renseignée ; les picks refusés (/skip : cote FR
+    # sous la cote seuil) ne sont pas joués, donc exclus du ROI.
+    query = (f"SELECT {target_col}, COALESCE(cote_reelle, cote), verdict FROM {table} "
+             f"WHERE {target_col} IS NOT NULL AND {target_col} != '' AND (pris IS NULL OR pris != 0)")
     if days != "all":
         try:
             days_int = int(days)

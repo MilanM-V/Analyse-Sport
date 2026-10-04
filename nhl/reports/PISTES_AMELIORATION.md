@@ -104,10 +104,13 @@ Test live du 2026-10-04 (`python nhl/scripts/check_odds_coverage.py`, rapport `o
 
 **Conséquence.** En l'état, le bot ne produira **aucun pick**. L'option « meilleur book FR » est codée mais n'a rien à lire. Les ROI simulés reposent sur un *proxy* : médiane des books US × 0,94. Ils supposent que Winamax affiche des cotes comparables, ce qui n'a pas été vérifié.
 
-**Options, à décider :**
-1. Scraper Winamax en direct (Pinnacle via The Odds API reste la référence no-vig).
-2. Calculer l'EV sur le proxy médiane US × 0,94 et vérifier la cote Winamax à la main avant chaque pari.
-3. Parier sur un book présent dans The Odds API (Pinnacle n'est pas accessible en France).
+**Décision (2026-10-04) : mode « proxy + cote seuil »** (`[betting] exec_mode = "proxy"`). Pas de scraping : ni risque Cloudflare, ni parseur à maintenir.
+
+- **Probabilité** : modèle mélangé au no-vig Pinnacle, inchangée.
+- **Cote d'exécution proxy** : médiane des books soft US × `exec_haircut` (0,94), comme dans le backtest. À défaut, cote « Oui » Pinnacle × `pin_haircut` (0,90, provisoire). Elle sert seulement à présélectionner les picks et à dimensionner la mise.
+- **Message Telegram** : `Joueur — à prendre si cote > X | Mise | B12`. X = (1 + seuil d'EV) / p_final, la plus petite cote encore value. L'utilisateur compare lui-même plusieurs books FR.
+- **Retour utilisateur** : `/pris B12 3.05 [book]` enregistre la cote réelle (ROI et portefeuille utilisent cette cote) ; `/skip B12` signale qu'aucune cote FR n'atteignait le seuil (pick exclu du ROI).
+- **Calibration** : `python nhl/scripts/calibrate_proxy.py` compare cotes réelles et proxy. À partir de 30 saisies, il suggère une nouvelle décote, à reporter dans `settings.toml`, puis il faut relancer `export_simulator_data.py`.
 
 ## 6. Prochaines étapes, par ordre de priorité
 

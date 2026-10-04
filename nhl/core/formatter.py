@@ -36,6 +36,35 @@ def find_cross_duo(list1: List[Dict], list2: List[Dict]) -> Optional[Tuple[Dict,
     return None
 
 
+def _pick_line(r: Dict[str, Any]) -> str:
+    """Suffixe d'une ligne de pick.
+
+    Mode proxy (CoteSeuil présente) : seulement la cote minimale à trouver sur un book FR,
+    la mise et la référence pour /pris — la cote proxy US n'est pas affichée.
+    """
+    if r.get('CoteSeuil'):
+        ref = f" | <code>{r['Ref']}</code>" if r.get('Ref') else ""
+        return f" — à prendre si cote &gt; <b>{r['CoteSeuil']:.2f}</b> | Mise: {r.get('Mise', '1 U')}{ref}"
+    if r.get('Cote'):
+        edge = (r.get('Proba', 0) * r['Cote'] - 1) * 100
+        return f" @{r['Cote']:.2f} chez {r.get('Bookmaker', 'Inconnu')} | Edge: {edge:.1f}% | Mise: {r.get('Mise', '1 U')}"
+    return ""
+
+
+def _leg(p: Dict[str, Any], label: str) -> str:
+    """Jambe de combiné : cote seuil en mode proxy, sinon cote du book."""
+    if p.get('CoteSeuil'):
+        return f"  • {p['Joueur']} ({label}) cote &gt; {p['CoteSeuil']:.2f}\n"
+    return f"  • {p['Joueur']} ({label}) @{p['Cote']:.2f}\n"
+
+
+def _combo_line(p1: Dict[str, Any], p2: Dict[str, Any], cote_combo: float, label: str, mise: float) -> str:
+    """Ligne de cote du combiné (produit des cotes seuils en mode proxy)."""
+    if p1.get('CoteSeuil') and p2.get('CoteSeuil'):
+        return f"  => <b>{label} : à prendre si cote &gt; {p1['CoteSeuil'] * p2['CoteSeuil']:.2f}</b> | Mise: {mise} U\n\n"
+    return f"  => <b>{label} : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+
+
 def get_best_per_match(picks_list: List[Dict]) -> List[Dict]:
     """Retourne le meilleur pick par match (meilleur EV).
 
@@ -109,7 +138,7 @@ def format_telegram_v18(
                 msg += f"  {emoji} <i>{label} :</i>\n"
                 for r in m_picks:
                     home_icon = '\U0001f3e0' if r['IsHome'] else '\u2708\ufe0f'
-                    cote_str = f" @{r['Cote']:.2f} chez {r.get('Bookmaker', 'Inconnu')} | Edge: {((r.get('Proba', 0) * (r.get('Cote', 1) or 1)) - 1)*100:.1f}% | Mise: {r.get('Mise', '1 U')}" if r.get('Cote') else ""
+                    cote_str = _pick_line(r)
                     msg += f"  \u2022 {home_icon} <b>{r['Joueur']}</b>{cote_str}\n"
 
         m_all = [r for picks_list in [buts, assists, points]
@@ -148,9 +177,8 @@ def _build_parlays_section(
         mise = 0.25 # Fun bet
 
         msg += f"<b>🔥 COMBINÉ SÉCURISÉ INTER-MATCH (EV: +{ev_combo*100:.1f}%) :</b>\n"
-        msg += f"  • {p1['Joueur']} ({p1.get('Categorie', 'Pick')}) @{p1['Cote']:.2f}\n"
-        msg += f"  • {p2['Joueur']} ({p2.get('Categorie', 'Pick')}) @{p2['Cote']:.2f}\n"
-        msg += f"  => <b>Cote Combo : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        msg += _leg(p1, p1.get('Categorie', 'Pick')) + _leg(p2, p2.get('Categorie', 'Pick'))
+        msg += _combo_line(p1, p2, cote_combo, "Cote Combo", mise)
 
         insert_parlay({
             "date": today_str, "vague": wave_label, "type_combo": "STRICT_INTER_MATCH",
@@ -172,9 +200,8 @@ def _build_parlays_section(
         mise = 0.25 # Fun bet
         
         msg += f"<b>⚡ MYMATCH SYNERGY (CORRÉLATION DE LIGNE) (EV: +{ev_combo*100:.1f}%) :</b>\n"
-        msg += f"  • {p1['Joueur']} (Buteur) @{p1['Cote']:.2f}\n"
-        msg += f"  • {p2['Joueur']} (Passeur) @{p2['Cote']:.2f}\n"
-        msg += f"  => <b>Cote MyMatch : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        msg += _leg(p1, "Buteur") + _leg(p2, "Passeur")
+        msg += _combo_line(p1, p2, cote_combo, "Cote MyMatch", mise)
         
         insert_parlay({
             "date": today_str, "vague": wave_label, "type_combo": "SYNERGY_MYMATCH",

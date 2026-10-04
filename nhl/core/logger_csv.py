@@ -9,7 +9,7 @@ import json
 import logging
 from typing import Dict, List, Any
 
-from nhl.core.database import insert_pick, insert_player
+from nhl.core.database import get_pick_id, insert_pick, insert_player, pick_ref
 from nhl.config.settings import cfg
 from shared.portfolio import Portfolio
 
@@ -23,7 +23,23 @@ def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
         "p_model": p.get("PModel"), "p_novig": p.get("PNovig"), "p_final": p.get("Proba"),
         "ev": p.get("EV"), "bookmaker": p.get("Bookmaker"), "model_version": p.get("ModelVersion"),
         "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
+        "cote_proxy": p.get("Cote") if p.get("PriceSource") else None,
+        "cote_seuil": p.get("CoteSeuil"), "price_source": p.get("PriceSource"),
     }
+
+
+def _after_insert(table: str, p: Dict[str, Any], pick_id: Any, today: str) -> None:
+    """Référence Telegram du pick (B12/A7) et, hors paper trading, pari au portefeuille.
+
+    En mode proxy, la cote enregistrée est une estimation : le pari n'entre au portefeuille
+    qu'avec la cote réellement obtenue (commande /pris).
+    """
+    pid = pick_id or get_pick_id(table, today, p["Joueur"])
+    if pid:
+        p["Ref"] = pick_ref(table, pid)
+    proxy_mode = getattr(cfg.betting, "exec_mode", "proxy") == "proxy"
+    if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading and not proxy_mode:
+        portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
 
 def log_picks_to_db(
@@ -67,8 +83,7 @@ def log_picks_to_db(
             "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
             **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading:
-            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+        _after_insert("picks", p, pick_id, today)
 
     for p in asts:
         f = ds.form_data.get(p["Joueur"], {})
@@ -89,8 +104,7 @@ def log_picks_to_db(
             "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
             **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading:
-            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+        _after_insert("picks_assists", p, pick_id, today)
 
     # Marché Points supprimé tel que demandé par l'analyse.
 
