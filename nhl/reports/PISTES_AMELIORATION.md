@@ -99,6 +99,7 @@ Test live du 2026-10-04 (`python nhl/scripts/check_odds_coverage.py`, rapport `o
 
 - **Aucun book FR** (Winamax, Betclic, Unibet, PMU) ne cote les props joueurs NHL dans The Odds API.
 - Confirmé par l'historique : sur les 815 319 cotes de `odds_long.parquet` (régions `us,eu`), il n'y a aucun book FR.
+- Les books FR sont bien dans l'API (région `fr` : betclic_fr, winamax_fr, unibet_fr, pmu_fr, netbet_fr), **mais seulement pour les marchés de match**. Test sur 2 matchs à venir, région `fr` : `h2h` → 4 à 5 books FR ; props joueurs → aucun book. L'endpoint `/events/{id}/markets` le confirme : Winamax, Betclic et PMU ne proposent que `h2h` et `h2h_3_way` ; NetBet y ajoute `h2h_ot`, `spreads` et `totals`. La documentation liste les books disponibles, pas les marchés que chacun couvre.
 - Le chemin prod `fetch_nhl_odds` a été testé de bout en bout. Il émet bien le warning « Aucun book d'exécution … aucun pari possible ».
 
 **Conséquence.** En l'état, le bot ne produira **aucun pick**. L'option « meilleur book FR » est codée mais n'a rien à lire. Les ROI simulés reposent sur un *proxy* : médiane des books US × 0,94. Ils supposent que Winamax affiche des cotes comparables, ce qui n'a pas été vérifié.
