@@ -1,7 +1,7 @@
 """
 sim/legacy.py — Code de l'ANCIEN pipeline (avant l'audit du 2026-10-03), conservé uniquement
 pour rejouer les phases historiques (`baseline`, `p0`, `p1a` de nhl/sim/phases.py), les
-scripts de recherche et le dashboard Streamlit hérité (`nhl/dashboard.py`).
+et les scripts de recherche.
 
 Le bot de production n'utilise RIEN de ce module : sa stratégie est `nhl/core/betting.py`
 et son modèle `nhl.core.ensemble_model.TemporalCalibratedGBM`.
