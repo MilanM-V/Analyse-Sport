@@ -34,13 +34,14 @@ if hasattr(sys.stdout, "reconfigure"):
 from nhl.core.betting import BetParams, select_bets  # noqa: E402
 from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
-from nhl.sim.version import current_version  # noqa: E402
+from nhl.sim.version import EXEC_HAIRCUT, PIN_HAIRCUT, current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
 SCENARIOS = {
     # Prix calculé exactement comme la prod (shared.odds_api.apply_proxy) : médiane soft × 0,94,
     # et pour les passes (cotées par Pinnacle seul en live) Pinnacle × pin_haircut.
-    "exec": ("Prix de la prod (proxy ; passes = Pinnacle × 0,90)", "prod_price", 1.0),
+    "exec": (f"Prix de la prod (médiane US × {EXEC_HAIRCUT:.3f} ; passes = Pinnacle × {PIN_HAIRCUT:.2f})".replace(".", ","),
+             "prod_price", 1.0),
     "median": ("Prix médian des books (multi-books FR)", "soft_median", 1.0),
     "best": ("Meilleure cote disponible", "soft_max", 1.0),
 }

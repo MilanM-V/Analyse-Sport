@@ -59,3 +59,8 @@ nhl/reports/*.parquet
 nhl/reports/log_*.txt
 nhl/data/gamelogs/mp_gamelogs.parquet
 catboost_info/
+
+# ─── Pages Winamax sauvegardées (pseudo et solde du compte) et cotes extraites ─
+nhl/cote historique winamax/
+nhl/data/odds/winamax_snapshots.parquet
+nhl/data/odds/winamax_calibration_rows.parquet

@@ -549,3 +549,31 @@ def q_p3() -> PhaseSpec:
 
 
 PHASES.update({"q_p2": q_p2, "q_p3": q_p3})
+
+
+def q_winamax() -> PhaseSpec:
+    """Config de prod après calibration du prix Winamax (exec_haircut 1,078, pin_haircut 1,00).
+
+    Les phases q_* précédentes ont été calculées avec 0,94 / 0,90 (décotes lues dans le TOML
+    au moment du calcul) : les rejouer aujourd'hui donnerait les chiffres calibrés.
+    """
+    from nhl.config.settings import cfg
+    spec = _q_phase("q_winamax", "prix Winamax calibré sur 15 matchs (1,078 × médiane US ; = Pinnacle aux passes)",
+                    {}, make_eligible(cfg.thresholds.passeurs.home_only, False), exec_is_prod=True)
+    spec.extra["devig"] = cfg.betting.devig_method
+    return spec
+
+
+PHASES["q_winamax"] = q_winamax
+
+
+def q_winamax_but() -> PhaseSpec:
+    """Scénario (non adopté) : prix Winamax calibré, marché buteur seul."""
+    from nhl.config.settings import cfg
+    spec = _q_phase("q_winamax_but", "scénario : prix Winamax calibré, buteur seul (passeur à edge Pinnacle négatif)",
+                    {"markets": ("but",)}, make_eligible(cfg.thresholds.passeurs.home_only, False), exec_is_prod=True)
+    spec.extra["devig"] = cfg.betting.devig_method
+    return spec
+
+
+PHASES["q_winamax_but"] = q_winamax_but
