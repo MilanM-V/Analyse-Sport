@@ -69,7 +69,7 @@ def _git(args, cwd):
 
 
 def test_dashboard_published_to_dedicated_branch(tmp_path, monkeypatch):
-    # Chargé par chemin : `dashboard` désigne aussi nhl/dashboard.py (Streamlit) dans le sys.path des tests
+    # Chargé par chemin : module isolé, sans dépendre du sys.path des tests
     spec = importlib.util.spec_from_file_location("dashboard_exporter", os.path.join(ROOT, "dashboard", "exporter.py"))
     ex = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ex)

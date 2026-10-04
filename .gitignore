@@ -64,3 +64,7 @@ catboost_info/
 nhl/cote historique winamax/
 nhl/data/odds/winamax_snapshots.parquet
 nhl/data/odds/winamax_calibration_rows.parquet
+
+# Données du dashboard générées par dashboard/exporter.py (publiées sur la branche dashboard-data)
+dashboard/bot.json
+dashboard/db.json

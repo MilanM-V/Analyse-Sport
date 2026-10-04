@@ -1,5 +1,5 @@
 """
-dash/botdata.py — Lecture seule des bases du bot pour le dashboard.
+dashboard/botdata.py — Lecture seule des bases du bot pour le dashboard (export JSON, exporter.py).
 
 - nhl/bot_database.db : picks (buteur, passeur), joueurs évalués, contexte de match ;
 - portfolio.db (racine) : paris pris et solde.
@@ -15,9 +15,10 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger("NHL.Dashboard")
-NHL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+NHL_DIR = os.path.join(REPO_ROOT, "nhl")
 BOT_DB = os.path.join(NHL_DIR, "bot_database.db")
-PORTFOLIO_DB = os.path.join(os.path.dirname(NHL_DIR), "portfolio.db")
+PORTFOLIO_DB = os.path.join(REPO_ROOT, "portfolio.db")
 PICK_TABLES = {"but": ("picks", "but"), "ast": ("picks_assists", "assist")}
 MARKET_LABEL = {"but": "Buteur", "ast": "Passeur"}
 
@@ -29,8 +30,9 @@ def _connect(path: str) -> Optional[sqlite3.Connection]:
     return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
-def list_tables(path: str = BOT_DB) -> Dict[str, int]:
-    """{table: nombre de lignes} d'une base."""
+def list_tables(path: Optional[str] = None) -> Dict[str, int]:
+    """{table: nombre de lignes} d'une base (défaut : base du bot)."""
+    path = path or BOT_DB
     conn = _connect(path)
     if conn is None:
         return {}
@@ -41,8 +43,9 @@ def list_tables(path: str = BOT_DB) -> Dict[str, int]:
         conn.close()
 
 
-def read_table(table: str, path: str = BOT_DB, limit: Optional[int] = None) -> pd.DataFrame:
+def read_table(table: str, path: Optional[str] = None, limit: Optional[int] = None) -> pd.DataFrame:
     """Contenu d'une table (les plus récentes d'abord si une colonne id existe)."""
+    path = path or BOT_DB
     conn = _connect(path)
     if conn is None or table not in list_tables(path):
         return pd.DataFrame()
@@ -55,13 +58,15 @@ def read_table(table: str, path: str = BOT_DB, limit: Optional[int] = None) -> p
         conn.close()
 
 
-def picks(path: str = BOT_DB) -> pd.DataFrame:
+def picks(path: Optional[str] = None) -> pd.DataFrame:
     """Tous les picks (buteur + passeur) dans un format commun, avec résultat et profit.
 
     Colonnes : date, marche, joueur, equipe, adversaire, cote (prise si /pris, sinon proxy),
     cote_seuil, mise, p_final, ev, resultat (1 gagné / 0 perdu / NaN en attente),
-    statut ('gagné', 'perdu', 'en attente', 'annulé', 'non pris'), profit (U), ev_cloture.
+    statut ('gagné', 'perdu', 'en attente', 'annulé', 'non pris'), profit (U), ev_cloture,
+    phase ('normal' ou 'early' = mode découverte).
     """
+    path = path or BOT_DB
     frames = []
     for market, (table, col) in PICK_TABLES.items():
         df = read_table(table, path)
@@ -78,6 +83,7 @@ def picks(path: str = BOT_DB) -> pd.DataFrame:
             "ev": pd.to_numeric(g("ev"), errors="coerce"), "pris": pd.to_numeric(g("pris"), errors="coerce"),
             "statut_db": g("statut", None), "resultat": pd.to_numeric(g(col), errors="coerce"),
             "closing_p_novig": pd.to_numeric(g("closing_p_novig"), errors="coerce"),
+            "phase": g("phase", "normal"),
         })
         frames.append(out)
     if not frames:
@@ -85,6 +91,7 @@ def picks(path: str = BOT_DB) -> pd.DataFrame:
     p = pd.concat(frames, ignore_index=True)
     p["cote"] = p["cote_reelle"].fillna(p["cote_proxy"])
     p["mise"] = p["mise"].fillna(1.0)
+    p["phase"] = p["phase"].fillna("normal")
     p["statut"] = np.select(
         [p["statut_db"] == "void", p["pris"] == 0, p["resultat"] == 1, p["resultat"] == 0],
         ["annulé", "non pris", "gagné", "perdu"], default="en attente")
@@ -122,8 +129,9 @@ def cumulative(p: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def portfolio(path: str = PORTFOLIO_DB) -> pd.DataFrame:
+def portfolio(path: Optional[str] = None) -> pd.DataFrame:
     """Mouvements du portefeuille (paris, dépôts, retraits) avec solde reconstruit."""
+    path = path or PORTFOLIO_DB
     df = read_table("portfolio", path)
     if df.empty:
         return df
@@ -133,8 +141,9 @@ def portfolio(path: str = PORTFOLIO_DB) -> pd.DataFrame:
     return df
 
 
-def bot_players_for(player: str, path: str = BOT_DB) -> pd.DataFrame:
+def bot_players_for(player: str, path: Optional[str] = None) -> pd.DataFrame:
     """Historique des évaluations du bot pour un joueur (table players)."""
+    path = path or BOT_DB
     conn = _connect(path)
     if conn is None:
         return pd.DataFrame()
