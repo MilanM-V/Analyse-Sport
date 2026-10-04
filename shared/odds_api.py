@@ -117,6 +117,73 @@ def select_events(events: List[Dict[str, Any]], target_teams: Iterable[str],
     return out
 
 
+def parse_outcomes(event_odds: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Aplatit la réponse `/events/{id}/odds` : une ligne par (book, marché, issue).
+
+    Returns:
+        [{event_id, commence_time, home, away, book, market, name, description, point, price}]
+    """
+    rows = []
+    for bm in event_odds.get("bookmakers", []):
+        for mkt in bm.get("markets", []):
+            for o in mkt.get("outcomes", []):
+                rows.append({"event_id": event_odds.get("id"), "commence_time": event_odds.get("commence_time"),
+                             "home": event_odds.get("home_team"), "away": event_odds.get("away_team"),
+                             "book": bm.get("key"), "market": mkt.get("key"), "name": o.get("name"),
+                             "description": o.get("description"), "point": o.get("point"),
+                             "price": o.get("price")})
+    return rows
+
+
+async def fetch_event_odds_raw(sport: str, games: Iterable[Tuple[str, str]], markets: Iterable[str],
+                               regions: str = "us", team_key: Optional[Callable[[str], str]] = None
+                               ) -> List[Dict[str, Any]]:
+    """Cotes brutes (toutes issues, tous books) des matchs du soir, pour journalisation.
+
+    Coût The Odds API : (nombre de marchés × nombre de régions) crédits par match.
+
+    Args:
+        sport: clé du sport (ex. 'icehockey_nhl').
+        games: affiches [(domicile, extérieur)] en noms complets.
+        markets: marchés demandés (ex. ['h2h', 'totals']).
+        regions: régions The Odds API.
+        team_key: normalisation des noms d'équipe (cf. select_events).
+
+    Returns:
+        Lignes de `parse_outcomes` pour tous les events retenus ([] si clé absente ou erreur).
+    """
+    if not ODDS_API_KEY:
+        logger.warning("Clé The Odds API manquante : journalisation des cotes ignorée.")
+        return []
+    rows: List[Dict[str, Any]] = []
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(f"{BASE_URL}/{sport}/events", params={"apiKey": ODDS_API_KEY}) as resp:
+                OddsAPIClient.check_quota(resp.headers)
+                if resp.status != 200:
+                    logger.error(f"[OddsAPI] Events [{resp.status}] : {await resp.text()}")
+                    return []
+                events = await resp.json()
+        except aiohttp.ClientError as e:
+            logger.error(f"[OddsAPI] Erreur connexion (events) : {e}")
+            return []
+        for ev_id in select_events(events, [], list(games), team_key=team_key):
+            params = {"apiKey": ODDS_API_KEY, "regions": regions, "markets": ",".join(markets),
+                      "oddsFormat": "decimal"}
+            try:
+                async with session.get(f"{BASE_URL}/{sport}/events/{ev_id}/odds", params=params) as resp:
+                    OddsAPIClient.check_quota(resp.headers)
+                    if resp.status == 422:
+                        continue  # marché non proposé pour ce match
+                    if resp.status != 200:
+                        logger.error(f"[OddsAPI] Odds event {ev_id} [{resp.status}] : {await resp.text()}")
+                        continue
+                    rows += parse_outcomes(await resp.json())
+            except aiohttp.ClientError as e:
+                logger.error(f"[OddsAPI] Erreur connexion (event {ev_id}) : {e}")
+    return rows
+
+
 class OddsAPIClient:
     """Client centralisé pour The Odds API avec gestion de quota."""
     

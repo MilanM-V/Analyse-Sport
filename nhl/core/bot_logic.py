@@ -554,6 +554,8 @@ class NhlBot(BaseSportBot):
             loop = asyncio.new_event_loop()
             try:
                 odds_map = loop.run_until_complete(fetch_nhl_odds(players_to_fetch, games=matches_soir))
+                if not is_early:
+                    self._log_market_data(loop, matches_soir, wave_ids)
             finally:
                 loop.close()
             
@@ -645,6 +647,22 @@ class NhlBot(BaseSportBot):
                     if p.get("Ref"):
                         self.telegram.send_pick_card(p, market)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+
+    def _log_market_data(self, loop: asyncio.AbstractEventLoop, matches: List[Tuple[str, str]],
+                         wave_ids: List[str]) -> None:
+        """Journalise le contexte de marché (futures features, audit P2) sans bloquer la vague."""
+        from nhl.core.odds_logging import log_extra_props, log_match_context
+        session_date = self.get_nhl_session_date()
+        goalies = {}
+        for mid in wave_ids:
+            mi, c = self.compos_en_memoire[mid]["match_info"], self.compos_en_memoire[mid]["compo"]
+            goalies[(mi["home"], mi["away"])] = (c.get("goalDom"), c.get("goalext"))
+        try:
+            if getattr(cfg.betting, "log_match_context", True):
+                loop.run_until_complete(log_match_context(matches, goalies, session_date))
+            loop.run_until_complete(log_extra_props(matches, session_date))
+        except Exception as e:  # la journalisation ne doit jamais empêcher l'envoi des picks
+            logger.error(f"[Contexte] Journalisation du marché impossible : {e}", exc_info=True)
 
     # Plafonds exposés pour les tests (délègue au module kelly)
     from nhl.core.kelly import CATEGORY_CAPS

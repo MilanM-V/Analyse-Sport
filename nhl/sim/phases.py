@@ -497,3 +497,50 @@ def q_p1_devig() -> PhaseSpec:
 
 
 PHASES["q_p1_devig"] = q_p1_devig
+
+
+def _q_model_phase(name: str, label: str, **model_kw) -> PhaseSpec:
+    """Variante de MODÈLE (walk-forward complet), stratégie et prix de q_p1 (Shin, w 0,50/0,75)."""
+    from nhl.core.ensemble_model import TemporalCalibratedGBM
+    spec = _q_phase(name, label, Q_P1, make_eligible(False, False), exec_is_prod=True)
+    spec.extra.pop("reuse_preds", None)
+    spec.extra["devig"] = "shin"
+    spec.model_factory = lambda m: TemporalCalibratedGBM(algos=("lgbm", "xgb", "cat"), calib_frac=0.15, **model_kw)
+    return spec
+
+
+def q_p1_ref() -> PhaseSpec:
+    return _q_model_phase("q_p1_ref", "référence modèle : walk-forward de l'ensemble actuel (contrôle de reproductibilité)")
+
+
+def q_p2_refit() -> PhaseSpec:
+    return _q_model_phase("q_p2_refit", "P2 : arbres ré-entraînés sur 100 % des lignes après calibration",
+                          refit_full=True)
+
+
+def q_p2_split() -> PhaseSpec:
+    return _q_model_phase("q_p2_split", "P2 : refit + poids et isotonique sur deux moitiés du bloc de calibration",
+                          refit_full=True, split_calib=True)
+
+
+PHASES.update({"q_p1_ref": q_p1_ref, "q_p2_refit": q_p2_refit, "q_p2_split": q_p2_split})
+
+
+def q_p2() -> PhaseSpec:
+    """P2 : refit_full et split_calib rejetés (règle a priori) ; journalisation sans effet sur les paris."""
+    spec = q_p1_devig()
+    spec.name = "q_p2"
+    spec.notes = "[après P2] modèle inchangé (refit_full / split_calib rejetés), journalisation du marché sans effet. " + spec.notes
+    return spec
+
+
+def q_p3() -> PhaseSpec:
+    """P3 : config de prod lue dans settings.toml (doit être identique à q_p2 : non-régression)."""
+    from nhl.config.settings import cfg
+    spec = _q_phase("q_p3", "après P3 : stratégie lue dans settings.toml [betting] (non-régression)",
+                    {}, make_eligible(cfg.thresholds.passeurs.home_only, False), exec_is_prod=True)
+    spec.extra["devig"] = cfg.betting.devig_method
+    return spec
+
+
+PHASES.update({"q_p2": q_p2, "q_p3": q_p3})

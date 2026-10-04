@@ -99,6 +99,9 @@ ev_min_low = 0.04            # EV minimale (cote < 2.00 / 2.00-3.50 / > 3.50)
 ev_min_mid = 0.04
 ev_min_high = 0.04
 no_pinnacle_extra_ev = 0.05  # EV supplémentaire exigée sans référence Pinnacle
+# Journalisation pour de futures features (audit P2, sans effet sur les paris du soir)
+log_match_context = true     # total de buts, 1N2, gardiens titulaires : ≈ 4 crédits par match et par vague
+log_extra_markets = false    # cotes points / tirs cadrés : double la consommation de crédits
 kelly_fraction = 0.1667      # Kelly 1/6
 min_stake_u = 0.5            # sous ce montant : pas de pari (aucun plancher artificiel)
 max_stake_but_u = 1.5
