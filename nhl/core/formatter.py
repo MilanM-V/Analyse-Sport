@@ -36,6 +36,42 @@ def find_cross_duo(list1: List[Dict], list2: List[Dict]) -> Optional[Tuple[Dict,
     return None
 
 
+def format_match_time(raw: str) -> str:
+    """'04.10. 20:00' (format de scraper.py) -> '20h00' ; valeur brute si illisible."""
+    try:
+        return datetime.strptime(raw.strip()[-5:], "%H:%M").strftime("%Hh%M")
+    except (ValueError, AttributeError):
+        return raw or ""
+
+
+def _pick_line(r: Dict[str, Any]) -> str:
+    """Suffixe d'une ligne de pick (message du canal).
+
+    Mode proxy (CoteSeuil présente) : seulement la cote minimale à trouver sur un book FR
+    et la mise — ni la cote proxy US, ni la référence (réservée aux fiches privées admin).
+    """
+    if r.get('CoteSeuil'):
+        return f" — à prendre si cote &gt; <b>{r['CoteSeuil']:.2f}</b> | Mise: {r.get('Mise', '1 U')}"
+    if r.get('Cote'):
+        edge = (r.get('Proba', 0) * r['Cote'] - 1) * 100
+        return f" @{r['Cote']:.2f} chez {r.get('Bookmaker', 'Inconnu')} | Edge: {edge:.1f}% | Mise: {r.get('Mise', '1 U')}"
+    return ""
+
+
+def _leg(p: Dict[str, Any], label: str) -> str:
+    """Jambe de combiné : cote seuil en mode proxy, sinon cote du book."""
+    if p.get('CoteSeuil'):
+        return f"  • {p['Joueur']} ({label}) cote &gt; {p['CoteSeuil']:.2f}\n"
+    return f"  • {p['Joueur']} ({label}) @{p['Cote']:.2f}\n"
+
+
+def _combo_line(p1: Dict[str, Any], p2: Dict[str, Any], cote_combo: float, label: str, mise: float) -> str:
+    """Ligne de cote du combiné (produit des cotes seuils en mode proxy)."""
+    if p1.get('CoteSeuil') and p2.get('CoteSeuil'):
+        return f"  => <b>{label} : à prendre si cote &gt; {p1['CoteSeuil'] * p2['CoteSeuil']:.2f}</b> | Mise: {mise} U\n\n"
+    return f"  => <b>{label} : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+
+
 def get_best_per_match(picks_list: List[Dict]) -> List[Dict]:
     """Retourne le meilleur pick par match (meilleur EV).
 
@@ -79,6 +115,8 @@ def format_telegram_v18(
         msg = f"<b>\U0001f3c6 NHL PLAYOFF V18.3 \u2014 VAGUE {wave_label}</b>\n\n"
     else:
         msg = f"<b>\U0001f3d2 NHL V18.3 \u2014 VAGUE {wave_label}</b>\n\n"
+    if cfg.mode.paper_trading:
+        msg = "<b>\U0001f4c4 PAPER TRADING \u2014 ne pas miser (validation du mod\u00e8le en cours)</b>\n" + msg
 
     for mid in wave_ids:
         data = compos_en_memoire.get(mid)
@@ -93,7 +131,7 @@ def format_telegram_v18(
         a_abbr = loaders.TEAM_MAPPING.get(m['away'], m['away'])
         
         time_str = m.get('time', '')
-        time_display = f" ({time_str})" if time_str else ""
+        time_display = f" 🕒 {format_match_time(time_str)}" if time_str else ""
 
         msg += f"<b>Match {t1_full} vs {t2_full}{time_display} :</b>\n"
 
@@ -107,14 +145,19 @@ def format_telegram_v18(
                 msg += f"  {emoji} <i>{label} :</i>\n"
                 for r in m_picks:
                     home_icon = '\U0001f3e0' if r['IsHome'] else '\u2708\ufe0f'
-                    cote_str = f" @{r['Cote']:.2f} chez {r.get('Bookmaker', 'Inconnu')} | Edge: {((r.get('Proba', 0) * (r.get('Cote', 1) or 1)) - 1)*100:.1f}% | Mise: {r.get('Mise', '1 U')}" if r.get('Cote') else ""
-                    msg += f"  \u2022 {home_icon} <b>{r['Joueur']}</b>{cote_str}\n"
+                    cote_str = _pick_line(r)
+                    early = " \U0001f9ea" if r.get('Phase') == 'early' else ""
+                    msg += f"  \u2022 {home_icon} <b>{r['Joueur']}</b>{early}{cote_str}\n"
 
         m_all = [r for picks_list in [buts, assists, points]
                  for r in picks_list if r['Equipe'] in (h_abbr, a_abbr)]
         if not m_all:
             msg += "  <i>\u26a0\ufe0f Aucun pick sur ce match.</i>\n"
         msg += "\n"
+
+    if any(r.get('Phase') == 'early' for r in buts + assists + points):
+        msg += ("\U0001f9ea <i>Mode découverte : joueur à moins de 10 matchs cette saison, estimation "
+                "basée aussi sur la saison passée. Mise réduite de moitié.</i>\n\n")
 
     # --- COMBINÉS INTELLIGENTS (V18.3) ---
     msg += _build_parlays_section(buts, assists, points, wave_label)
@@ -146,9 +189,8 @@ def _build_parlays_section(
         mise = 0.25 # Fun bet
 
         msg += f"<b>🔥 COMBINÉ SÉCURISÉ INTER-MATCH (EV: +{ev_combo*100:.1f}%) :</b>\n"
-        msg += f"  • {p1['Joueur']} ({p1.get('Categorie', 'Pick')}) @{p1['Cote']:.2f}\n"
-        msg += f"  • {p2['Joueur']} ({p2.get('Categorie', 'Pick')}) @{p2['Cote']:.2f}\n"
-        msg += f"  => <b>Cote Combo : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        msg += _leg(p1, p1.get('Categorie', 'Pick')) + _leg(p2, p2.get('Categorie', 'Pick'))
+        msg += _combo_line(p1, p2, cote_combo, "Cote Combo", mise)
 
         insert_parlay({
             "date": today_str, "vague": wave_label, "type_combo": "STRICT_INTER_MATCH",
@@ -170,9 +212,8 @@ def _build_parlays_section(
         mise = 0.25 # Fun bet
         
         msg += f"<b>⚡ MYMATCH SYNERGY (CORRÉLATION DE LIGNE) (EV: +{ev_combo*100:.1f}%) :</b>\n"
-        msg += f"  • {p1['Joueur']} (Buteur) @{p1['Cote']:.2f}\n"
-        msg += f"  • {p2['Joueur']} (Passeur) @{p2['Cote']:.2f}\n"
-        msg += f"  => <b>Cote MyMatch : @{cote_combo:.2f}</b> | Mise: {mise} U\n\n"
+        msg += _leg(p1, "Buteur") + _leg(p2, "Passeur")
+        msg += _combo_line(p1, p2, cote_combo, "Cote MyMatch", mise)
         
         insert_parlay({
             "date": today_str, "vague": wave_label, "type_combo": "SYNERGY_MYMATCH",

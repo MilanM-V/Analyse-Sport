@@ -94,8 +94,8 @@ api_odds=your_odds_api_key
 # Bot NHL complet
 python nhl/main_bot.py
 
-# Dashboard Streamlit NHL
-streamlit run nhl/dashboard.py
+# Dashboard NHL (site statique Tailwind, déployé sur Vercel ; en local :)
+python dashboard/exporter.py && python dashboard/dev_server.py   # http://localhost:8000
 
 # Bot MLB (harvester uniquement)
 python mlb/main_bot.py

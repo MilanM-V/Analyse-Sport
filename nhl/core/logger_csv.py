@@ -5,15 +5,46 @@ Extrait de bot_logic.py pour séparation des responsabilités.
 """
 import os
 import csv
+import json
 import logging
 from typing import Dict, List, Any
 
-from nhl.core.database import insert_pick, insert_player
+from nhl.core.database import get_pick_id, insert_pick, insert_player, pick_ref
 from nhl.config.settings import cfg
 from shared.portfolio import Portfolio
 
 logger = logging.getLogger("NHL.LoggerCSV")
 portfolio = Portfolio()
+
+
+# Audit P3 (2026-10-04) : les colonnes héritées is_top6, linemate_synergy, team_scoring_env,
+# prior_* et opp_xga_60 ne sont plus écrites (features de l'ancien modèle, valeurs 0 trompeuses).
+# Le vecteur réellement servi au modèle est dans features_json.
+def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Colonnes de traçabilité du pari (audit P3) : probas, EV, version et vecteur exact du modèle."""
+    return {
+        "p_model": p.get("PModel"), "p_novig": p.get("PNovig"), "p_final": p.get("Proba"),
+        "ev": p.get("EV"), "bookmaker": p.get("Bookmaker"), "model_version": p.get("ModelVersion"),
+        "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
+        "cote_proxy": p.get("Cote") if p.get("PriceSource") else None,
+        "cote_seuil": p.get("CoteSeuil"), "price_source": p.get("PriceSource"),
+        "player_id": p.get("PlayerId"),  # résolution fiable (void si absent du boxscore)
+        "phase": p.get("Phase", "normal"),  # 'early' = mode découverte (moins de 10 matchs)
+    }
+
+
+def _after_insert(table: str, p: Dict[str, Any], pick_id: Any, today: str) -> None:
+    """Référence Telegram du pick (B12/A7) et, hors paper trading, pari au portefeuille.
+
+    En mode proxy, la cote enregistrée est une estimation : le pari n'entre au portefeuille
+    qu'avec la cote réellement obtenue (commande /pris).
+    """
+    pid = pick_id or get_pick_id(table, today, p["Joueur"])
+    if pid:
+        p["Ref"] = pick_ref(table, pid)
+    proxy_mode = getattr(cfg.betting, "exec_mode", "proxy") == "proxy"
+    if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading and not proxy_mode:
+        portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
 
 def log_picks_to_db(
@@ -49,15 +80,9 @@ def log_picks_to_db(
             "ga_g": adv.get("GA_G", 0), "hdca_g": adv.get("HDCA_G", 0),
             "opp_b2b": adv.get("B2B", False), "consec_goals": f.get("ConsecGoals", 0),
             "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
-            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum"):
-            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+        _after_insert("picks", p, pick_id, today)
 
     for p in asts:
         f = ds.form_data.get(p["Joueur"], {})
@@ -70,15 +95,9 @@ def log_picks_to_db(
             "atoi": f.get("ATOI", 0), "l10_a": f.get("L10_A_G", 0), "season_a": v5.get("A_GP", 0),
             "ga_g": adv.get("GA_G", 0), "opp_b2b": adv.get("B2B", False),
             "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
-            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum"):
-            portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
+        _after_insert("picks_assists", p, pick_id, today)
 
     # Marché Points supprimé tel que demandé par l'analyse.
 
@@ -96,12 +115,7 @@ def log_picks_to_db(
             "ga_g": adv.get("GA_G", 0) if adv else 0, "hdca_g": adv.get("HDCA_G", 0) if adv else 0,
             "consec_goals": f.get("ConsecGoals", 0), "game_mode": cfg.api.mode,
             "cote": p.get("Cote"), "goalie_sv_pct": p.get("goalie_sv_pct"),
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or "⭐" in f.get("PP1", "")),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if "⭐" in f.get("PP1", "") else 0.0,
-            "team_scoring_env": (adv.get("GA_G", 0) * adv.get("HDCA_G", 0)) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
         })
 
 

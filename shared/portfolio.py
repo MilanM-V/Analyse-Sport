@@ -31,6 +31,12 @@ _PORTFOLIO_DB = os.path.join(
 INITIAL_BANKROLL = 100.0  # Unités
 
 
+def _now_iso() -> str:
+    """Horodatage en heure de Paris (indépendant du fuseau du serveur)."""
+    from shared.utils import paris_now
+    return paris_now().isoformat()
+
+
 class Portfolio:
     """Gestionnaire de portefeuille simulé multi-sport."""
 
@@ -78,7 +84,7 @@ class Portfolio:
         """
         conn = self._get_conn()
         c = conn.cursor()
-        c.execute("SELECT COALESCE(SUM(gain), 0) FROM portfolio WHERE resolved = 1")
+        c.execute("SELECT COALESCE(SUM(gain), 0) FROM portfolio WHERE resolved >= 1")
         total_gain = c.fetchone()[0]
         conn.close()
         return INITIAL_BANKROLL + total_gain
@@ -113,7 +119,7 @@ class Portfolio:
             """INSERT INTO portfolio
                (timestamp, sport, player, market, cote, mise, gain, solde_apres, resolved)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)""",
-            (datetime.now().isoformat(), "deposit", "ADMIN", "DEPOSIT", 1.0, 0.0, amount, self.get_balance() + amount)
+            (_now_iso(), "deposit", "ADMIN", "DEPOSIT", 1.0, 0.0, amount, self.get_balance() + amount)
         )
         conn.commit()
         conn.close()
@@ -128,7 +134,7 @@ class Portfolio:
             """INSERT INTO portfolio
                (timestamp, sport, player, market, cote, mise, gain, solde_apres, resolved)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)""",
-            (datetime.now().isoformat(), "withdraw", "ADMIN", "WITHDRAW", 1.0, 0.0, -amount, self.get_balance() - amount)
+            (_now_iso(), "withdraw", "ADMIN", "WITHDRAW", 1.0, 0.0, -amount, self.get_balance() - amount)
         )
         conn.commit()
         conn.close()
@@ -163,7 +169,7 @@ class Portfolio:
                (timestamp, sport, pick_id, player, market, cote, mise, resolved)
                VALUES (?, ?, ?, ?, ?, ?, ?, 0)""",
             (
-                datetime.now().isoformat(),
+                _now_iso(),
                 sport,
                 pick_id,
                 player,
@@ -181,15 +187,16 @@ class Portfolio:
         )
         return bet_id
 
-    def resolve_bet(self, bet_id: int, won: bool) -> float:
+    def resolve_bet(self, bet_id: int, won: bool, void: bool = False) -> float:
         """Résout un pari et calcule le gain/perte.
 
         Args:
             bet_id: ID du pari dans le portfolio.
             won: True si le pari est gagné.
+            void: True si le pari est annulé (joueur non aligné) : mise rendue, gain 0.
 
         Returns:
-            Le gain en Unités (positif si gagné, négatif si perdu).
+            Le gain en Unités (positif si gagné, négatif si perdu, 0 si annulé).
         """
         conn = self._get_conn()
         c = conn.cursor()
@@ -200,42 +207,50 @@ class Portfolio:
             return 0.0
 
         cote, mise = row
-        gain = (cote * mise - mise) if won else -mise
+        gain = 0.0 if void else ((cote * mise - mise) if won else -mise)
         solde = self.get_balance() + gain
 
         c.execute(
-            "UPDATE portfolio SET gain = ?, solde_apres = ?, resolved = 1 WHERE id = ?",
-            (round(gain, 2), round(solde, 2), bet_id),
+            "UPDATE portfolio SET gain = ?, solde_apres = ?, resolved = ? WHERE id = ?",
+            (round(gain, 2), round(solde, 2), 2 if void else 1, bet_id),
         )
         conn.commit()
         conn.close()
 
-        emoji = "✅" if won else "❌"
-        logger.info(
-            f"[Portfolio] {emoji} Pari #{bet_id} résolu : "
-            f"{'GAGNÉ' if won else 'PERDU'} → {gain:+.2f} U (solde: {solde:.1f} U)"
-        )
+        status = "ANNULÉ" if void else ("GAGNÉ" if won else "PERDU")
+        logger.info(f"[Portfolio] Pari #{bet_id} résolu : {status} → {gain:+.2f} U (solde: {solde:.1f} U)")
         return gain
 
-    def resolve_bet_by_pick_id(self, pick_id: int, sport: str, won: bool) -> float:
+    def resolve_bet_by_pick_id(self, pick_id: int, sport: str, won: bool,
+                               market: Optional[str] = None, void: bool = False) -> float:
         """Résout un pari en utilisant le pick_id d'origine (ex: id de la table picks de la NHL).
-        
+
+        Les tables de picks (buteur, passeur) ont chacune leur propre séquence d'id : sans
+        `market`, un pari passeur pouvait être résolu avec le résultat du pick buteur de même id.
+
         Args:
             pick_id: ID du pick dans la base du sport.
             sport: Nom du sport ('nhl').
             won: True si le pari est gagné.
-            
+            market: marché du pari ('BUTEUR', 'PASSEUR'...) ; recommandé.
+            void: pari annulé (mise rendue).
+
         Returns:
             Le gain en Unités.
         """
         conn = self._get_conn()
         c = conn.cursor()
-        c.execute("SELECT id FROM portfolio WHERE pick_id = ? AND sport = ? AND resolved = 0", (pick_id, sport))
+        sql = "SELECT id FROM portfolio WHERE pick_id = ? AND sport = ? AND resolved = 0"
+        args: list = [pick_id, sport]
+        if market:
+            sql += " AND market = ?"
+            args.append(market)
+        c.execute(sql, args)
         row = c.fetchone()
         conn.close()
-        
+
         if row:
-            return self.resolve_bet(row[0], won)
+            return self.resolve_bet(row[0], won, void=void)
         return 0.0
 
     def get_daily_pnl(self, date: Optional[str] = None) -> Dict[str, Any]:
@@ -247,9 +262,11 @@ class Portfolio:
         Returns:
             Dict avec 'total_gain', 'nb_bets', 'nb_won', 'nb_lost', 'by_sport'.
         """
-        date = date or datetime.now().strftime("%Y-%m-%d")
+        from shared.utils import paris_now
+        date = date or paris_now().strftime("%Y-%m-%d")
         conn = self._get_conn()
         c = conn.cursor()
+        # Paris annulés (resolved = 2) exclus : ni gagnés ni perdus
         c.execute(
             """SELECT sport, gain, mise FROM portfolio
                WHERE resolved = 1 AND timestamp LIKE ?""",
@@ -305,7 +322,7 @@ class Portfolio:
             if resolved == 0:
                 status = "PENDING"
             else:
-                status = "WIN" if gain and gain > 0 else "LOSS"
+                status = "VOID" if resolved == 2 else ("WIN" if gain and gain > 0 else "LOSS")
 
             # Formater la date en YYYY-MM-DD HH:MM
             date_bet = timestamp[:16].replace("T", " ") if "T" in timestamp else timestamp[:16]

@@ -1,0 +1,27 @@
+name: NHL Bot CI
+
+on:
+  push:
+    branches: [ "main", "test" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"   # tomllib (3.11+) est utilisé par nhl/config/settings.py
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt pytest
+
+    - name: Test with pytest
+      run: pytest tests/ -v

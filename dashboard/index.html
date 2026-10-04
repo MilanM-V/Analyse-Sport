@@ -1,149 +1,62 @@
 <!DOCTYPE html>
 <html lang="fr" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BetBot Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        dark: '#0f172a',
-                        card: '#1e293b',
-                        accent: '#3b82f6',
-                        success: '#10b981',
-                        danger: '#ef4444'
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
-        .glass-card {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 1rem;
-        }
-        .gradient-text {
-            background: linear-gradient(to right, #60a5fa, #3b82f6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        /* Hide scrollbar for tables but keep functionality */
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BetEngine NHL</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏒</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: { ink: '#0b1120', panel: '#111a2e', line: 'rgba(148,163,184,.14)', accent: '#3b82f6' },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { background: radial-gradient(1200px 600px at 10% -10%, rgba(59,130,246,.12), transparent 60%), #0b1120; }
+    .card { background: rgba(17,26,46,.82); border: 1px solid rgba(148,163,184,.14); border-radius: 1rem; }
+    .nav-link.active { background: rgba(59,130,246,.16); color: #fff; }
+    .nav-link.active .dot { background: #3b82f6; }
+    .tbl th { position: sticky; top: 0; background: #111a2e; z-index: 1; }
+    .tbl tbody tr:hover { background: rgba(59,130,246,.08); }
+    .tbl tr[data-href] { cursor: pointer; }
+    .scroll-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(148,163,184,.25); border-radius: 8px; }
+    .fade-in { animation: fade .25s ease-out; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .skeleton { background: linear-gradient(90deg, rgba(148,163,184,.08), rgba(148,163,184,.16), rgba(148,163,184,.08)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: .75rem; }
+    @keyframes sk { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  </style>
 </head>
-<body class="min-h-screen p-4 md:p-8">
+<body class="text-slate-200 font-sans antialiased min-h-screen">
+  <!-- Barre mobile -->
+  <header class="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-ink/90 backdrop-blur border-b border-line">
+    <a href="#/" class="font-extrabold text-lg tracking-tight">🏒 BetEngine <span class="text-accent">NHL</span></a>
+    <button id="menu-btn" aria-label="Menu" class="p-2 rounded-lg hover:bg-white/5">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </header>
 
-    <div class="max-w-7xl mx-auto space-y-6">
-        
-        <!-- Header -->
-        <header class="flex justify-between items-center mb-8">
-            <div>
-                <h1 class="text-3xl font-bold gradient-text flex items-center gap-2">
-                    <i data-lucide="activity"></i> BetBot Dashboard
-                </h1>
-                <p class="text-sm text-slate-400 mt-1" id="last-updated">Dernière mise à jour : Chargement...</p>
-            </div>
-            <button onclick="fetchData()" class="p-2 bg-card hover:bg-slate-700 rounded-full border border-slate-700 transition">
-                <i data-lucide="refresh-cw" class="w-5 h-5 text-accent" id="refresh-icon"></i>
-            </button>
-        </header>
+  <div class="flex">
+    <!-- Navigation -->
+    <aside id="sidebar" class="fixed lg:sticky top-0 left-0 z-40 h-screen w-64 shrink-0 -translate-x-full lg:translate-x-0 transition-transform bg-ink/95 lg:bg-transparent border-r border-line p-4 overflow-y-auto">
+      <a href="#/" class="hidden lg:block font-extrabold text-xl tracking-tight px-3 py-2">🏒 BetEngine <span class="text-accent">NHL</span></a>
+      <nav id="nav" class="mt-4 space-y-6 text-sm"></nav>
+      <p id="updated" class="mt-8 px-3 text-xs text-slate-500"></p>
+    </aside>
+    <div id="backdrop" class="hidden fixed inset-0 z-30 bg-black/50 lg:hidden"></div>
 
-        <!-- KPIs Grid -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div class="glass-card p-5">
-                <p class="text-sm text-slate-400 font-medium">Bankroll Actuelle</p>
-                <h2 class="text-2xl font-bold mt-2" id="kpi-balance">0.00 U</h2>
-            </div>
-            <div class="glass-card p-5">
-                <p class="text-sm text-slate-400 font-medium">Profit Total</p>
-                <h2 class="text-2xl font-bold mt-2" id="kpi-profit">0.00 U</h2>
-            </div>
-            <div class="glass-card p-5">
-                <p class="text-sm text-slate-400 font-medium">ROI</p>
-                <h2 class="text-2xl font-bold mt-2" id="kpi-roi">0.0%</h2>
-            </div>
-            <div class="glass-card p-5">
-                <p class="text-sm text-slate-400 font-medium">Winrate</p>
-                <h2 class="text-2xl font-bold mt-2" id="kpi-winrate">0.0%</h2>
-            </div>
-            <div class="glass-card p-5">
-                <p class="text-sm text-slate-400 font-medium">Paris Placés</p>
-                <h2 class="text-2xl font-bold mt-2" id="kpi-total-bets">0</h2>
-            </div>
-        </div>
+    <main id="app" class="flex-1 min-w-0 px-4 sm:px-6 lg:px-10 py-6 lg:py-8 max-w-[1400px]"></main>
+  </div>
 
-        <!-- Main Content Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <!-- Chart Section (Spans 2 columns) -->
-            <div class="glass-card p-5 lg:col-span-2">
-                <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <i data-lucide="trending-up" class="w-5 h-5 text-accent"></i> Évolution Bankroll
-                </h3>
-                <div class="h-72 w-full relative">
-                    <canvas id="evolutionChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Active Bets Section -->
-            <div class="glass-card p-5 flex flex-col">
-                <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <i data-lucide="clock" class="w-5 h-5 text-yellow-400"></i> Paris en cours (<span id="active-count">0</span>)
-                </h3>
-                <div class="overflow-y-auto flex-1 hide-scrollbar" style="max-height: 288px;">
-                    <div id="active-bets-container" class="space-y-3">
-                        <!-- Injected via JS -->
-                    </div>
-                </div>
-                <div class="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center text-sm">
-                    <span class="text-slate-400">Exposition :</span>
-                    <span class="font-bold text-yellow-400" id="pending-exposure">0.00 U</span>
-                </div>
-            </div>
-            
-        </div>
-
-        <!-- History Table -->
-        <div class="glass-card p-5">
-            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-                <i data-lucide="history" class="w-5 h-5 text-accent"></i> Historique (50 derniers)
-            </h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm whitespace-nowrap">
-                    <thead class="text-slate-400 border-b border-slate-700">
-                        <tr>
-                            <th class="py-3 px-4 font-medium">Date</th>
-                            <th class="py-3 px-4 font-medium">Sport</th>
-                            <th class="py-3 px-4 font-medium">Joueur</th>
-                            <th class="py-3 px-4 font-medium">Marché</th>
-                            <th class="py-3 px-4 font-medium">Cote</th>
-                            <th class="py-3 px-4 font-medium">Mise</th>
-                            <th class="py-3 px-4 font-medium text-right">Gain</th>
-                        </tr>
-                    </thead>
-                    <tbody id="history-tbody" class="divide-y divide-slate-800/50">
-                        <!-- Injected via JS -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-    </div>
-
-    <script src="app.js"></script>
-    <script>
-        // Initialize Lucide icons
-        lucide.createIcons();
-    </script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

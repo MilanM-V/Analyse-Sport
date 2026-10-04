@@ -4,6 +4,7 @@ import sys
 import logging
 import requests
 from datetime import datetime, timedelta
+from shared.utils import paris_now
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -15,7 +16,7 @@ if hasattr(time, 'tzset'):
 load_dotenv()
 logger = logging.getLogger("NHL.Scraper")
 
-import config.constants as constants
+import nhl.config.constants as constants
 
 NHL_BASE = "https://api-web.nhle.com"
 ROTOWIRE_URL = "https://www.rotowire.com/hockey/nhl-lineups.php"
@@ -25,10 +26,10 @@ _ROTOWIRE_CACHE = {
     "timestamp": 0,
     "soup": None
 }
-CACHE_TTL_SECONDS = 300  # 5 minutes
+CACHE_TTL_SECONDS = 120  # 2 minutes
 
 def _nhl_date():
-    now = datetime.now()
+    now = paris_now()
     if now.hour < 12:
         return (now - timedelta(days=1)).strftime("%Y-%m-%d")
     return now.strftime("%Y-%m-%d")
@@ -61,7 +62,7 @@ def get_scheduled_matches(url=""):
         logger.error(f"[Scraper] API NHL schedule indisponible ({e})")
         return []
 
-    now = datetime.now()
+    now = paris_now()
     ref = now - timedelta(days=1) if now.hour < 12 else now
     start_limit = ref.replace(hour=17, minute=0, second=0, microsecond=0)
     end_limit   = (ref + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)

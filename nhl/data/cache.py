@@ -56,8 +56,8 @@ async def get_toi_from_boxscore(session, game_id, api_get_func):
         try:
             m, s = map(int, toi_str.split(':'))
             return m * 60 + s
-        except:
-            return 0
+        except (ValueError, AttributeError):
+            return 0  # TOI absent ou mal formé ('--') : joueur compté à 0 seconde
 
     for side in ('homeTeam', 'awayTeam'):
         team_abbr = data.get(side, {}).get('abbrev', '')

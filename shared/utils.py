@@ -132,3 +132,14 @@ def match_player_name(db_name: str, api_name: str) -> bool:
         return db_parts[0][0] == api_parts[0][0] and db_parts[-1] == api_parts[-1]
 
     return False
+
+
+def paris_now():
+    """Heure courante de Paris, naïve (indépendante du fuseau système du VPS).
+
+    Tout le bot raisonne en heure de Paris (horaires de match, fenêtres d'activité) :
+    utiliser datetime.now() supposait que le serveur était réglé sur Europe/Paris.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Europe/Paris")).replace(tzinfo=None)

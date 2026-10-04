@@ -3,7 +3,7 @@ import logging
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-import core.loaders as loaders
+import nhl.core.loaders as loaders
 
 logger = logging.getLogger("NHL.DataStore")
 

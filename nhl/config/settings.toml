@@ -1,33 +1,24 @@
 # ─── NHL Bot Configuration ───────────────────────────────────────────────────
 # Source unique pour tous les seuils et paramètres du bot.
-# V18 — Filtres optimisés sur 2893 joueurs (grid search exhaustif)
+# Stratégie de mise : section [betting] (nhl/core/betting.py). Voir nhl/reports/RECAP_AUDIT_P0_P3_2026-10-04.md.
+
+[mode]
+# Kill-switch (audit P0) : true = picks envoyés avec la mention PAPER et
+# non comptés dans le Portfolio. Repasser à false seulement après validation.
+paper_trading = true
+# Critère de passage en réel (fixé à l'avance, audit 2026-10-04) : au moins go_live_min_bets paris
+# avec cote de clôture ET borne basse de l'IC 95 % de l'EV de clôture (no-vig Pinnacle) > 0.
+go_live_min_bets = 300
 
 [thresholds.buteurs]
-# OMEGA Optimal — Buteurs (+87.9 U)
-season_g_min = 0.40
-l10_sog_min = 2.5
-l10_hdcf_min = 1.5
+# Éligibilité (market_filter.evaluate_player_markets). Les anciens seuils OMEGA (grid search
+# in-sample) ont été supprimés à l'audit P3 du 2026-10-04 : plus aucun code ne les lisait.
 home_only = false
-opp_ga_min = 2.5
-cote_min = 3.00  # Sécurité : On cible le segment rentable (ROI +54%)
+cote_min = 4.50  # HÉRITÉ : lu seulement par nhl/sim/legacy.py (la prod utilise [betting])
 
 [thresholds.passeurs]
-# OMEGA Optimal — Passeurs (+22.1 U)
-season_a_min = 0.50
-l10_a_min = 0.60
-home_only = true
-atoi_min = 16.0
-opp_ga_min = 2.6
-cote_min = 2.50  # Sécurité : Évite les cotes trop basses à ROI négatif
-
-[thresholds.pointeurs]
-# OMEGA Optimal — Pointeurs (+62.3 U)
-season_pts_min = 0.90
-l10_pts_min = 0.60
-home_only = false
-atoi_min = 17.0
-opp_ga_min = 2.6
-cote_min = 1.70  # Sécurité : Break-even minimum
+home_only = false  # audit 2026-10-04 : aligné sur la simulation (is_home est une feature du modèle)
+cote_min = 2.50  # HÉRITÉ : idem
 
 [thresholds.general]
 atoi_min = 13.0
@@ -39,12 +30,6 @@ low_odds_min_ev = 0.08   # 8% minimum pour contrer le vig bookmaker
 mid_odds_cutoff = 3.50
 mid_odds_min_ev = 0.05   # 5% zone standard
 high_odds_min_ev = 0.10  # 10% pour compenser la forte variance
-
-[kelly]
-# Quarter Kelly fraction is used in bot_logic / kelly
-buteur_cap = 1.5
-passeur_cap = 2.0
-pointeur_cap = 2.0
 
 [wave]
 ecart_max_min = 5
@@ -60,3 +45,61 @@ season_id = "20262027"
 fallback_season_id = "20252026"
 game_type = "2"         # 2 = saison régulière, 3 = playoffs
 semaphore_limit = 20
+
+[betting]
+# Stratégie de mise (nhl/core/betting.py). Configuration « Équilibré, 1 pari / match »,
+# choisie le 2026-10-04 parmi 672 configurations (nhl/reports/CONFIG_SEARCH_2026-10-04.md) :
+# EV ≥ 8 %, poids du modèle 0,65 / 0,90 face au no-vig Pinnacle, 1 pari max par match, Kelly 1/6.
+# Simulé : +122 U / saison (validation 2023-24), +83 U (contrôle 2024-25), ROI ≈ +19 %, drawdown 10-13 U.
+# Mode proxy conservé : chaque pick affiche la cote seuil à trouver sur un book FR.
+markets = ["but", "ast"]
+# Books où l'utilisateur peut parier (mode "books" : cote d'exécution = la meilleure d'entre eux).
+# Retirer ceux sans compte. Clés The Odds API (région eu).
+exec_books = ["winamax_fr", "betclic_fr", "unibet_fr", "pmu_fr"]
+# Aucun book FR ne cote les props NHL dans The Odds API (check_odds_coverage.py, 2026-10-04).
+# exec_mode = "proxy" : cote d'exécution = médiane books soft US × exec_haircut (méthode du
+# backtest), à défaut cote Pinnacle × pin_haircut ; le pick affiche la cote seuil à trouver
+# à la main sur un book FR. "books" : meilleure cote parmi exec_books (si un jour couverts).
+# Recalibrer les décotes avec nhl/scripts/calibrate_proxy.py (cotes saisies via /pris).
+exec_mode = "proxy"
+# Calibré le 2026-10-04 sur 15 matchs (dernières cotes Winamax avant le coup d'envoi vs The Odds API
+# 5 min avant) : Winamax = 1,078 × médiane US au buteur (IC 95 % 1,069-1,093) et = cote Pinnacle
+# « Oui » (ratio 1,00, IC 1,00-1,04). Rapport : nhl/reports/WINAMAX_CALIBRATION_2026-10-04.md
+exec_haircut = 1.078          # buteur : Winamax / médiane US
+exec_haircut_ast = 1.00       # passes : Winamax = médiane US (ratio 1,00, IC 0,96-1,02) ; avant le 2026-10-04 la prod
+                              # appliquait 1,078 aux passes cotées par les books US (prix surestimé d'environ 8 %)
+pin_haircut = 1.00
+# Audit 2026-10-04 (P1) : no-vig de Shin, meilleure log-loss que le multiplicatif sur 2023-24
+# (le multiplicatif surestime le « Oui » : 26,7 % prédit contre 24,9 % observé au buteur).
+devig_method = "shin"
+blend_w_but = 0.65           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle) ; appris en log-loss : 0,50 / 0,75
+blend_w_ast = 0.90
+cote_min_but = 1.5
+cote_max_but = 15.0
+cote_min_ast = 1.5
+cote_max_ast = 6.0
+ev_min_low = 0.08            # EV minimale (cote < 2.00 / 2.00-3.50 / > 3.50)
+ev_min_mid = 0.08
+ev_min_high = 0.08
+no_pinnacle_extra_ev = 0.05  # EV supplémentaire exigée sans référence Pinnacle
+# Journalisation pour de futures features (audit P2, sans effet sur les paris du soir)
+log_match_context = true     # total de buts, 1N2, gardiens titulaires : ≈ 4 crédits par match et par vague
+log_extra_markets = false    # cotes points / tirs cadrés : double la consommation de crédits
+kelly_fraction = 0.1667      # Kelly 1/6
+min_stake_u = 0.5            # sous ce montant : pas de pari (aucun plancher artificiel)
+max_stake_but_u = 1.5
+max_stake_ast_u = 2.0
+max_game_exposure_u = 5.0    # paris corrélés d'un même match
+max_bets_per_game = 1        # on ne garde que le meilleur EV de chaque match (0 = illimité)
+max_daily_exposure_u = 30.0
+
+[early_season]
+# Mode découverte (2026-10-04) : picks pour les joueurs à moins de 10 matchs cette saison, avec
+# leurs G/GP et A/GP mélangés à ceux de la saison passée : (saison + shrink_k × saison passée) / (gp + shrink_k).
+# EV exigée plus haute et mise réduite ; picks marqués 🧪 et exclus du compteur go_live_min_bets.
+# Bascule automatique en mode normal à 10 matchs. Backtest : nhl/reports/EARLY_SEASON_2026-10-04.md
+enabled = true
+min_prev_gp = 20      # matchs joués la saison passée (les recrues sans historique restent exclues)
+shrink_k = 10
+ev_min = 0.15        # choisi sur la validation (EV 8 / 12 / 15 %) : +6,5 U en 2023-24, -0,3 U en contrôle 2024-25 (≈ neutre)
+stake_mult = 0.5      # mise Kelly × 0,5

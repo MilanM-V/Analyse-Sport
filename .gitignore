@@ -42,6 +42,29 @@ memory/
 artifacts/
 
 # ─── GitHub & misc ────────────────────────────────
-.github/
+# .github/ est versionné (CI : tests à chaque push, audit 2026-10-04), sauf les consignes d'agent
+.github/copilot-instructions.md
 comparaison/
 analyse/
+
+# ─── Données dérivées (régénérées automatiquement) ─
+nhl/data/*_all.csv
+nhl/data/gamelogs/nhlapi_*.parquet
+nhl/data/odds/odds_wide.parquet
+nhl/data/odds/odds_long.parquet
+nhl/sent_matches.json
+nhl/data/features_p1.parquet
+nhl/models/live/
+nhl/reports/*.parquet
+nhl/reports/log_*.txt
+nhl/data/gamelogs/mp_gamelogs.parquet
+catboost_info/
+
+# ─── Pages Winamax sauvegardées (pseudo et solde du compte) et cotes extraites ─
+nhl/cote historique winamax/
+nhl/data/odds/winamax_snapshots.parquet
+nhl/data/odds/winamax_calibration_rows.parquet
+
+# Données du dashboard générées par dashboard/exporter.py (publiées sur la branche dashboard-data)
+dashboard/bot.json
+dashboard/db.json

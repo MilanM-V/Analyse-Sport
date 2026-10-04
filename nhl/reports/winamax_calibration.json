@@ -1,0 +1,651 @@
+{
+  "n_games": 15,
+  "ast": {
+    "n": 539,
+    "vs_soft": {
+      "n": 325,
+      "median": 1.0,
+      "ci": [
+        0.9571428571428572,
+        1.0169491525423728
+      ],
+      "by_odds": {
+        "(1.0, 2.0]": 1.0059,
+        "(2.0, 3.0]": 0.9643,
+        "(3.0, 4.5]": 1.0159,
+        "(4.5, 7.0]": 1.1648
+      }
+    },
+    "vs_pin": {
+      "n": 145,
+      "median": 1.0,
+      "ci": [
+        1.0,
+        1.0248447204968942
+      ],
+      "by_odds": {
+        "(1.0, 2.0]": 1.0,
+        "(2.0, 3.0]": 1.0,
+        "(3.0, 4.5]": 1.0
+      }
+    },
+    "ev_fair": {
+      "n": 145,
+      "mean": -0.0746038923745608,
+      "share_pos": 0.04827586206896552,
+      "share_4pct": 0.006896551724137931
+    },
+    "logloss": {
+      "n": 144,
+      "model": 0.6684438391814602,
+      "pinnacle_shin": 0.6651881616654082,
+      "winamax_implied": 0.658602694323002,
+      "rate": 0.4444444444444444
+    }
+  },
+  "but": {
+    "n": 536,
+    "vs_soft": {
+      "n": 516,
+      "median": 1.0776772247360484,
+      "ci": [
+        1.0694444444444444,
+        1.0928520114942528
+      ],
+      "by_odds": {
+        "(1.0, 2.0]": 1.0101,
+        "(2.0, 3.0]": 1.0245,
+        "(3.0, 4.5]": 1.0299,
+        "(4.5, 7.0]": 1.0833,
+        "(7.0, 100.0]": 1.1538
+      }
+    },
+    "vs_pin": {
+      "n": 135,
+      "median": 1.0,
+      "ci": [
+        1.0,
+        1.0377358490566038
+      ],
+      "by_odds": {
+        "(1.0, 2.0]": 1.0363,
+        "(2.0, 3.0]": 1.0192,
+        "(3.0, 4.5]": 1.0,
+        "(4.5, 7.0]": 1.0222
+      }
+    },
+    "ev_fair": {
+      "n": 135,
+      "mean": -0.09647907976861388,
+      "share_pos": 0.044444444444444446,
+      "share_4pct": 0.014814814814814815
+    },
+    "logloss": {
+      "n": 135,
+      "model": 0.5951208316082587,
+      "pinnacle_shin": 0.5998630831898132,
+      "winamax_implied": 0.598387249748818,
+      "rate": 0.3111111111111111
+    }
+  },
+  "eligible_rows": {
+    "ast": 514,
+    "but": 345
+  },
+  "bets": {
+    "n": 49,
+    "by_market": {
+      "ast": 22,
+      "but": 27
+    },
+    "stake": 39.5,
+    "profit": 16.275000000000002,
+    "roi": 0.41202531645569623,
+    "hit": 0.2857142857142857,
+    "expected_profit_model": 8.982869124355256,
+    "ev_pinnacle": -0.05814799204102595,
+    "list": [
+      {
+        "date": "2026-10-01",
+        "player": "Paul Cotter",
+        "market": "but",
+        "cote": 9.5,
+        "p_final": 0.128,
+        "ev": 0.214,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-01",
+        "player": "Brock Boeser",
+        "market": "ast",
+        "cote": 3.0,
+        "p_final": 0.367,
+        "ev": 0.1,
+        "mise": 1.0,
+        "won": 1
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Nate Danielson",
+        "market": "but",
+        "cote": 12.0,
+        "p_final": 0.118,
+        "ev": 0.411,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Justin Sourdif",
+        "market": "but",
+        "cote": 9.0,
+        "p_final": 0.157,
+        "ev": 0.411,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Alexander Killorn",
+        "market": "ast",
+        "cote": 4.5,
+        "p_final": 0.298,
+        "ev": 0.34,
+        "mise": 1.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Ryan Poehling",
+        "market": "ast",
+        "cote": 5.0,
+        "p_final": 0.247,
+        "ev": 0.235,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Joe Veleno",
+        "market": "but",
+        "cote": 14.0,
+        "p_final": 0.087,
+        "ev": 0.222,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "William Carrier",
+        "market": "but",
+        "cote": 14.0,
+        "p_final": 0.087,
+        "ev": 0.222,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Pavel Mintyukov",
+        "market": "ast",
+        "cote": 6.0,
+        "p_final": 0.202,
+        "ev": 0.214,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Alexei Protas",
+        "market": "but",
+        "cote": 6.0,
+        "p_final": 0.201,
+        "ev": 0.204,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Alex Tuch",
+        "market": "ast",
+        "cote": 4.0,
+        "p_final": 0.298,
+        "ev": 0.191,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Boone Jenner",
+        "market": "but",
+        "cote": 7.75,
+        "p_final": 0.151,
+        "ev": 0.167,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Anthony Beauvillier",
+        "market": "but",
+        "cote": 7.75,
+        "p_final": 0.144,
+        "ev": 0.119,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Boone Jenner",
+        "market": "ast",
+        "cote": 6.0,
+        "p_final": 0.186,
+        "ev": 0.117,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Tom Wilson",
+        "market": "ast",
+        "cote": 3.4,
+        "p_final": 0.313,
+        "ev": 0.063,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-02",
+        "player": "Adam Fox",
+        "market": "ast",
+        "cote": 2.0,
+        "p_final": 0.527,
+        "ev": 0.055,
+        "mise": 1.0,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Anthony Beauvillier",
+        "market": "but",
+        "cote": 10.0,
+        "p_final": 0.151,
+        "ev": 0.506,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Kiefer Sherwood",
+        "market": "but",
+        "cote": 7.5,
+        "p_final": 0.201,
+        "ev": 0.504,
+        "mise": 1.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Michael Carcone",
+        "market": "but",
+        "cote": 7.0,
+        "p_final": 0.203,
+        "ev": 0.419,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Dalibor Dvorsky",
+        "market": "but",
+        "cote": 9.0,
+        "p_final": 0.157,
+        "ev": 0.411,
+        "mise": 1.0,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Pius Suter",
+        "market": "but",
+        "cote": 9.0,
+        "p_final": 0.157,
+        "ev": 0.411,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Stephen Halliday",
+        "market": "but",
+        "cote": 11.0,
+        "p_final": 0.128,
+        "ev": 0.407,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Dawson Mercer",
+        "market": "but",
+        "cote": 7.0,
+        "p_final": 0.201,
+        "ev": 0.404,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Matias Maccelli",
+        "market": "ast",
+        "cote": 5.0,
+        "p_final": 0.257,
+        "ev": 0.287,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Colton Sissons",
+        "market": "but",
+        "cote": 10.0,
+        "p_final": 0.128,
+        "ev": 0.279,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Christian Dvorak",
+        "market": "but",
+        "cote": 6.0,
+        "p_final": 0.209,
+        "ev": 0.255,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Calum Ritchie",
+        "market": "but",
+        "cote": 5.6,
+        "p_final": 0.222,
+        "ev": 0.243,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Corey Perry",
+        "market": "but",
+        "cote": 7.5,
+        "p_final": 0.163,
+        "ev": 0.224,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Bo Horvat",
+        "market": "ast",
+        "cote": 2.8,
+        "p_final": 0.436,
+        "ev": 0.219,
+        "mise": 2.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Connor McMichael",
+        "market": "ast",
+        "cote": 4.75,
+        "p_final": 0.253,
+        "ev": 0.201,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Frederick Gaudreau",
+        "market": "but",
+        "cote": 9.3,
+        "p_final": 0.128,
+        "ev": 0.189,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Jack Roslovic",
+        "market": "but",
+        "cote": 5.25,
+        "p_final": 0.222,
+        "ev": 0.166,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Jake Guentzel",
+        "market": "ast",
+        "cote": 2.3,
+        "p_final": 0.505,
+        "ev": 0.162,
+        "mise": 2.0,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Jimmy Snuggerud",
+        "market": "ast",
+        "cote": 3.15,
+        "p_final": 0.367,
+        "ev": 0.155,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Jonatan Berggren",
+        "market": "but",
+        "cote": 9.0,
+        "p_final": 0.128,
+        "ev": 0.151,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Dylan Holloway",
+        "market": "ast",
+        "cote": 3.25,
+        "p_final": 0.353,
+        "ev": 0.146,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Brandon Hagel",
+        "market": "ast",
+        "cote": 2.4,
+        "p_final": 0.476,
+        "ev": 0.141,
+        "mise": 1.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Noel Acciari",
+        "market": "but",
+        "cote": 8.5,
+        "p_final": 0.134,
+        "ev": 0.137,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Alexei Protas",
+        "market": "but",
+        "cote": 5.6,
+        "p_final": 0.201,
+        "ev": 0.123,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Jack Roslovic",
+        "market": "ast",
+        "cote": 3.9,
+        "p_final": 0.287,
+        "ev": 0.121,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Alex Laferriere",
+        "market": "ast",
+        "cote": 3.5,
+        "p_final": 0.319,
+        "ev": 0.117,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Teuvo Teravainen",
+        "market": "but",
+        "cote": 8.3,
+        "p_final": 0.134,
+        "ev": 0.11,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Easton Cowan",
+        "market": "ast",
+        "cote": 3.5,
+        "p_final": 0.314,
+        "ev": 0.097,
+        "mise": 0.5,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Erik Haula",
+        "market": "but",
+        "cote": 7.0,
+        "p_final": 0.157,
+        "ev": 0.097,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Evgeni Malkin",
+        "market": "ast",
+        "cote": 2.45,
+        "p_final": 0.443,
+        "ev": 0.086,
+        "mise": 1.0,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Auston Matthews",
+        "market": "but",
+        "cote": 2.75,
+        "p_final": 0.389,
+        "ev": 0.07,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Patrick Kane",
+        "market": "ast",
+        "cote": 2.4,
+        "p_final": 0.446,
+        "ev": 0.069,
+        "mise": 1.0,
+        "won": 0
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Thomas Chabot",
+        "market": "ast",
+        "cote": 3.2,
+        "p_final": 0.329,
+        "ev": 0.053,
+        "mise": 0.5,
+        "won": 1
+      },
+      {
+        "date": "2026-10-03",
+        "player": "Travis Konecny",
+        "market": "ast",
+        "cote": 2.9,
+        "p_final": 0.361,
+        "ev": 0.047,
+        "mise": 0.5,
+        "won": 1
+      }
+    ]
+  },
+  "volume": {
+    "actuel (0.94 / 0.90)": {
+      "n": 42,
+      "by_market": {
+        "ast": 26,
+        "but": 16
+      },
+      "profit": 26.112,
+      "roi": 0.7912727272727272,
+      "max_dd": 2.3705,
+      "ev_pinnacle": -0.13051129295377845
+    },
+    "mesuré uniforme (1.078 / 1.000)": {
+      "n": 1764,
+      "by_market": {
+        "ast": 730,
+        "but": 1034
+      },
+      "profit": 102.69165346908005,
+      "roi": 0.08114709875075468,
+      "max_dd": 24.08434766214178,
+      "ev_pinnacle": -0.03519397710443203
+    },
+    "mesuré par tranche de cote": {
+      "n": 1379,
+      "by_market": {
+        "ast": 733,
+        "but": 646
+      },
+      "profit": 128.35066545815653,
+      "roi": 0.12726887997834063,
+      "max_dd": 23.26291316526607,
+      "ev_pinnacle": -0.06021838978966122
+    }
+  },
+  "bands": {
+    "but_vs_soft": {
+      "2": 1.0776772247360484,
+      "3": 1.0333333333333334,
+      "4.5": 1.0416666666666667,
+      "7": 1.085144927536232,
+      "100": 1.1428571428571428
+    },
+    "ast_vs_pin": {
+      "2": 1.0,
+      "3": 1.0,
+      "4.5": 1.0,
+      "7": 1.0,
+      "100": 1.0
+    }
+  }
+}
