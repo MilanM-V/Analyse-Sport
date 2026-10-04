@@ -34,6 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from nhl.config.constants import TEAM_FULL_TO_ABBR  # noqa: E402
+from nhl.core.fr_odds import clean_player  # noqa: E402  (source unique, partagée avec la lecture en direct)
 from shared.odds_api import _norm  # noqa: E402
 
 PAGES_DIR = os.path.join(ROOT, "nhl", "cote historique winamax")
@@ -54,20 +55,6 @@ def page_lines(html: str) -> List[str]:
     body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S)
     lines = (ln.strip() for ln in unescape(re.sub(r"<[^>]+>", "\n", body)).splitlines())
     return [ln for ln in lines if ln and not ln.startswith("'")]
-
-
-def clean_player(name: str) -> str:
-    """Nom Winamax -> « Prénom Nom ».
-
-    Winamax écrit parfois « Nom, Prénom » et ajoute l'année de naissance aux homonymes
-    (« Elias Pettersson (1998) ») : l'année est retirée ; deux homonymes d'une même équipe
-    restent donc ambigus et ne seront pas rapprochés (volontairement).
-    """
-    name = re.sub(r"\s*\(\d{4}\)\s*$", "", name).strip()
-    if "," in name:
-        last, first = [x.strip() for x in name.split(",", 1)]
-        name = f"{first} {last}"
-    return name
 
 
 def _odd(s: str) -> float:

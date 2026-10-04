@@ -93,6 +93,23 @@ max_game_exposure_u = 5.0    # paris corrélés d'un même match
 max_bets_per_game = 1        # on ne garde que le meilleur EV de chaque match (0 = illimité)
 max_daily_exposure_u = 30.0
 
+[fr_odds]
+# Vraies cotes joueurs des books français, lues sur leurs pages publiques sans compte
+# (nhl/core/fr_odds.py ; test : python -m nhl.core.fr_odds --probe). Toutes les cotes lues sont
+# journalisées (table book_odds) à chaque vague et à T-5, avec Pinnacle et la médiane US.
+# Winamax ne sert ses données qu'aux IP françaises : le VPS IONOS (Francfort) ne peut pas le lire.
+# Ajouter "winamax" à books après la migration sur un VPS en France (2026-10-04).
+enabled = true
+books = ["unibet", "betclic"]
+# true : la meilleure cote parmi exec_books remplace la cote estimée (médiane US décotée) pour
+# sélectionner, miser et afficher le pick (« @3,02 chez Betclic »). false : journalisation seule.
+use_as_exec = false
+exec_books = ["winamax", "unibet", "betclic"]  # ne garder que les sites où tu as un compte
+winamax_source = "page"   # "page" (PRELOADED_STATE) ou "socket" (canal temps réel) ; l'autre sert de repli
+proxy_winamax = ""        # ex. "socks5h://127.0.0.1:1080" si Winamax doit sortir par une IP française
+timeout_s = 20
+min_delay_s = 1.0         # pause entre deux pages d'un même site
+
 [early_season]
 # Mode découverte (2026-10-04) : picks pour les joueurs à moins de 10 matchs cette saison, avec
 # leurs G/GP et A/GP mélangés à ceux de la saison passée : (saison + shrink_k × saison passée) / (gp + shrink_k).

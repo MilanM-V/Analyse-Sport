@@ -179,7 +179,7 @@ async def log_closing_lines_for_match(home: str, away: str, session_date: str) -
     if not players:
         conn.close()
         return 0
-    odds = await fetch_nhl_odds(players, games=[(home, away)])
+    odds = await fetch_nhl_odds(players, games=[(home, away)], log_moment="cloture", session_date=session_date)
     updates = 0
     for player, data in odds.items():
         for key, table, col in (("BUTS", "picks", "but"), ("ASSISTS", "picks_assists", "assist")):

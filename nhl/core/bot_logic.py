@@ -557,7 +557,9 @@ class NhlBot(BaseSportBot):
             # asyncio.run() ne fonctionne pas dans un thread background — créer un loop dédié
             loop = asyncio.new_event_loop()
             try:
-                odds_map = loop.run_until_complete(fetch_nhl_odds(players_to_fetch, games=matches_soir))
+                odds_map = loop.run_until_complete(fetch_nhl_odds(
+                    players_to_fetch, games=matches_soir,
+                    log_moment=None if is_early else "vague", session_date=self.get_nhl_session_date()))
                 if not is_early:
                     self._log_market_data(loop, matches_soir, wave_ids)
             finally:
@@ -600,6 +602,8 @@ class NhlBot(BaseSportBot):
                 p["Bookmaker"] = odds_data.get("bookmaker", "Inconnu")
                 p["PNovig"] = odds_data.get("p_novig")
                 p["PriceSource"] = odds_data.get("price_source")
+                p["FrPrices"] = odds_data.get("fr_prices")      # cotes des books FR (affichage, log)
+                p["CoteProxy"] = odds_data.get("proxy_price")   # estimation remplacée par une cote FR
                 pred = preds.get(p["Joueur"])
                 if market not in ml_models or not pred or market not in pred:
                     continue

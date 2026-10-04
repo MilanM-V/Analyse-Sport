@@ -26,7 +26,8 @@ def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
         "p_model": p.get("PModel"), "p_novig": p.get("PNovig"), "p_final": p.get("Proba"),
         "ev": p.get("EV"), "bookmaker": p.get("Bookmaker"), "model_version": p.get("ModelVersion"),
         "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
-        "cote_proxy": p.get("Cote") if p.get("PriceSource") else None,
+        # Cote estimée (médiane US décotée) ; si une vraie cote FR l'a remplacée, l'estimation d'origine
+        "cote_proxy": p.get("CoteProxy") if p.get("PriceSource") == "fr" else (p.get("Cote") if p.get("PriceSource") else None),
         "cote_seuil": p.get("CoteSeuil"), "price_source": p.get("PriceSource"),
         "player_id": p.get("PlayerId"),  # résolution fiable (void si absent du boxscore)
         "phase": p.get("Phase", "normal"),  # 'early' = mode découverte (moins de 10 matchs)

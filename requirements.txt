@@ -18,3 +18,4 @@ optuna
 lightgbm
 catboost
 tzdata
+curl_cffi~=0.16.3
