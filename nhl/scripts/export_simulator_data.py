@@ -1,9 +1,10 @@
 """
 scripts/export_simulator_data.py — Injecte les données réelles du moteur dans simulateur.html.
 
-Source : prédictions walk-forward (nhl/reports/preds_<src>.parquet) rejouées avec la
-stratégie de prod (nhl/core/betting.select_bets + settings.toml [betting]) pour trois
-prix d'exécution : médiane soft books × 0,94 (proxy Winamax), médiane brute, meilleure cote.
+Source : les CONFIGURATIONS de nhl/reports/config_scenarios.json (search_config.py) : chacune
+est un moteur (prédictions walk-forward) + une stratégie (select_bets), toutes rejouées au prix
+de prod calibré (médiane US × exec_haircut ; passes = Pinnacle × pin_haircut) avec le no-vig
+de prod. La config « actuelle » correspond à settings.toml.
 
 Les paris sont regroupés par SOIRÉE (toutes les soirées cotées, y compris celles sans
 pari) : le simulateur rééchantillonne des soirées entières, ce qui conserve la
@@ -12,7 +13,8 @@ corrélation des paris d'un même soir et le vrai rythme de picks.
 Le JSON est écrit entre les marqueurs /*DATA_START*/ et /*DATA_END*/ de simulateur.html.
 
 Usage:
-    python nhl/scripts/export_simulator_data.py [--src p1b_ens]
+    python nhl/scripts/search_config.py          # (re)calcule les configurations
+    python nhl/scripts/export_simulator_data.py
 """
 import argparse
 import json
@@ -31,22 +33,12 @@ for p in (ROOT, os.path.join(ROOT, "nhl")):
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from nhl.core.betting import BetParams, select_bets  # noqa: E402
+from nhl.core.betting import BetParams  # noqa: E402
 from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
 from nhl.sim.version import EXEC_HAIRCUT, PIN_HAIRCUT, current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
-SCENARIOS = {
-    # Prix calculé exactement comme la prod (shared.odds_api.apply_proxy) : médiane soft × 0,94,
-    # et pour les passes (cotées par Pinnacle seul en live) Pinnacle × pin_haircut.
-    "exec": (f"Prix de la prod (médiane US × {EXEC_HAIRCUT:.3f} ; passes = Pinnacle × {PIN_HAIRCUT:.2f})".replace(".", ","),
-             "prod_price", 1.0),
-    "median": ("Prix médian des books (multi-books FR)", "soft_median", 1.0),
-    "best": ("Meilleure cote disponible", "soft_max", 1.0),
-}
-
-
 def load_preds(src: str) -> pd.DataFrame:
     """Prédictions walk-forward avec l'éligibilité de prod."""
     from nhl.config.settings import cfg
@@ -61,24 +53,6 @@ def load_preds(src: str) -> pd.DataFrame:
         sub["eligible"] = p2_eligible(sub, m).to_numpy()
         parts.append(sub)
     return pd.concat(parts, ignore_index=True)
-
-
-def scenario_nights(preds: pd.DataFrame, col: str, k: float, params: BetParams) -> list:
-    """Paris de chaque soirée cotée : [cote, mise, gagné, p_conservatrice, marché(0=but,1=ast)]."""
-    nights = []
-    for date, day in preds.groupby("date", sort=True):
-        d = day[day["eligible"] & day[col].notna()]
-        cands = [{"market": r.market, "p_model": float(r.p_model), "p_novig": r.p_novig,
-                  "cote": float(getattr(r, col) * k), "game_id": r.gameId, "won": int(r.won),
-                  "soft": float(r.soft_median)} for r in d.itertuples(index=False)]
-        bets = []
-        for b in select_bets(cands, 100.0, params):
-            # Hypothèse « aucun edge » : Pinnacle no-vig si dispo, sinon proba implicite de la médiane
-            pn = b["p_novig"]
-            p_cons = float(pn) if pn == pn and pn is not None else 1.0 / b["soft"]
-            bets.append([round(b["cote"], 3), b["mise"], b["won"], round(p_cons, 4), 0 if b["market"] == "but" else 1])
-        nights.append({"d": date.strftime("%Y-%m-%d"), "v": int(date < VAL_END), "b": bets})
-    return nights
 
 
 def summary(nights: list) -> dict:
@@ -103,27 +77,56 @@ def summary(nights: list) -> dict:
             "nights": len(nights), "active_nights": int(sum(1 for n in nights if n["b"]))}
 
 
-def export(src: str = "p1b_ens") -> str:
-    """Rejoue la stratégie actuelle, injecte les données dans simulateur.html ; renvoie la version."""
-    preds = load_preds(src)
+def config_nights(scenario: dict, all_dates: list) -> list:
+    """Paris de chaque soirée cotée pour une configuration : [cote, mise, gagné, p_cons, marché]."""
+    from nhl.scripts.search_config import Config, day_candidates, load_engine, run_config
+    c = scenario["config"]
+    cfg = Config(c["engine"], tuple(c["markets"]), c["ev_min"],
+                 round(c["blend_w"]["but"] - BetParams.from_config().blend_w["but"], 2),
+                 c["cote_max_but"], c["max_bets_per_game"])
+    bets = run_config(day_candidates(load_engine(cfg.engine)), cfg)
+    by_day = {d: g for d, g in bets.groupby("date")} if len(bets) else {}
+    nights = []
+    for date in all_dates:
+        rows = []
+        for b in (by_day[date].itertuples(index=False) if date in by_day else []):
+            # Hypothèse « aucun edge » : Pinnacle no-vig si dispo, sinon proba implicite de la médiane US
+            pn = b.p_novig
+            p_cons = float(pn) if pn is not None and pn == pn else (1.0 / b.soft if b.soft else 1.0 / b.cote)
+            rows.append([round(b.cote, 3), b.mise, int(b.won), round(p_cons, 4), 0 if b.market == "but" else 1])
+        nights.append({"d": date.strftime("%Y-%m-%d"), "v": int(date < VAL_END), "b": rows})
+    return nights
+
+
+def export() -> str:
+    """Rejoue chaque configuration, injecte les données dans simulateur.html ; renvoie la version."""
+    from nhl.scripts.search_config import SCENARIOS_JSON, load_engine
+    with open(SCENARIOS_JSON, encoding="utf-8") as f:
+        scen = json.load(f)
+    base = load_engine("p1b_ens")
+    priced = base[base["eligible"] & base["prod_price"].notna()]
+    all_dates = sorted(priced["date"].unique())
     params = BetParams.from_config()
     data = {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "version": current_version(),
-        "source": f"walk-forward {src} + settings.toml [betting]",
-        "period": [preds["date"].min().strftime("%Y-%m-%d"), preds["date"].max().strftime("%Y-%m-%d")],
+        "source": "configurations de nhl/reports/config_scenarios.json, prix de prod calibré",
+        "price": f"médiane US × {EXEC_HAIRCUT:.3f} ; passes = Pinnacle × {PIN_HAIRCUT:.2f}".replace(".", ","),
+        "period": [pd.Timestamp(all_dates[0]).strftime("%Y-%m-%d"), pd.Timestamp(all_dates[-1]).strftime("%Y-%m-%d")],
         "params": {"kelly_fraction": params.kelly_fraction, "min_stake": params.min_stake,
                    "max_game": params.max_game_exposure, "max_day": params.max_daily_exposure},
+        "protocol": scen["protocol"],
         "scenarios": {},
     }
-    for key, (label, col, k) in SCENARIOS.items():
-        nights = scenario_nights(preds, col, k, params)
+    for key, sc in scen["scenarios"].items():
+        nights = config_nights(sc, [pd.Timestamp(d) for d in all_dates])
         s = summary(nights)
-        data["scenarios"][key] = {"label": label, "nights": nights, "summary": s}
+        data["scenarios"][key] = {"label": sc["label"], "rule": sc["rule"], "manual": sc.get("manual", False),
+                                  "config": sc["config"], "val": sc["val"], "ctl": sc["ctl"],
+                                  "robustness": sc["robustness"], "nights": nights, "summary": s}
         al = s.get("all", {})
-        print(f"[{key}] {label} : {al.get('n', 0)} paris sur {s.get('nights')} soirées | "
-              f"cote {al.get('avg_odds')} | réussite {al.get('win_rate')} | ROI {al.get('roi')} | "
-              f"EV Pinnacle {al.get('roi_pinnacle')}")
+        print(f"[{key}] {sc['label']} : {al.get('n', 0)} paris sur {s.get('nights')} soirées | "
+              f"ROI {al.get('roi')} | EV Pinnacle {al.get('roi_pinnacle')}")
 
     blob = json.dumps(data, separators=(",", ":"))
     html = open(HTML, encoding="utf-8").read()
@@ -138,9 +141,8 @@ def export(src: str = "p1b_ens") -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default="p1b_ens")
-    export(ap.parse_args().src)
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    export()
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ class BetParams:
     max_game_exposure: float
     max_daily_exposure: float
     markets: tuple = ("but", "ast")
+    max_bets_per_game: int = 0  # 0 = illimité ; sinon on garde les meilleurs EV de chaque match
 
     @classmethod
     def from_config(cls, **overrides: Any) -> "BetParams":
@@ -52,6 +53,7 @@ class BetParams:
             min_stake=b.min_stake_u, max_stake={"but": b.max_stake_but_u, "ast": b.max_stake_ast_u},
             max_game_exposure=b.max_game_exposure_u, max_daily_exposure=b.max_daily_exposure_u,
             markets=tuple(b.markets),
+            max_bets_per_game=int(getattr(b, "max_bets_per_game", 0)),
         )
         for k, v in overrides.items():
             setattr(p, k, v)
@@ -132,16 +134,20 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
 
     scored.sort(key=lambda x: x["ev"], reverse=True)
     out, per_game, total = [], {}, current_exposure
+    n_game: Dict[Any, int] = {}
     for c in scored:
         units = kelly_units(c["p_final"], c["cote"], bankroll, params, c["market"])
         if units <= 0:
             continue
         g = c.get("game_id")
+        if params.max_bets_per_game and n_game.get(g, 0) >= params.max_bets_per_game:
+            continue
         room = min(params.max_game_exposure - per_game.get(g, 0.0), params.max_daily_exposure - total)
         units = min(units, round(room * 2) / 2)
         if units < params.min_stake:
             continue
         c["mise"] = units
+        n_game[g] = n_game.get(g, 0) + 1
         per_game[g] = per_game.get(g, 0.0) + units
         total += units
         out.append(c)
