@@ -9,8 +9,15 @@ logger = logging.getLogger("NHL.Database")
 DB_PATH = "./bot_database.db"
 
 def get_connection() -> sqlite3.Connection:
-    """Returns a connection to the SQLite database."""
-    return sqlite3.connect(DB_PATH, check_same_thread=False, timeout=15.0)
+    """Connexion à la base du bot.
+
+    Mode WAL (2026-10-04) : les lectures ne bloquent plus les écritures, et une écriture attend
+    jusqu'à 30 s qu'une autre se termine (« database is locked » vu sur le VPS à l'auto-résolution).
+    """
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
 
 # V14 : Ajout dynamique des colonnes XGBoost si elles n'existent pas
 def ensure_schema():

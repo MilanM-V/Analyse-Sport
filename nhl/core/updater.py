@@ -77,19 +77,22 @@ def update_pending_picks() -> int:
         Nombre de picks résolus (void compris).
     """
     conn = get_connection()
-    c = conn.cursor()
-    dates = set()
-    for table, col, _, _ in PICK_TABLES:
-        c.execute(f"SELECT DISTINCT date FROM {table} WHERE ({col} IS NULL OR {col} = '') "
-                  f"AND (statut IS NULL OR statut != 'void')")
-        dates.update(r[0] for r in c.fetchall())
+    try:
+        dates = set()
+        for table, col, _, _ in PICK_TABLES:
+            rows = conn.execute(f"SELECT DISTINCT date FROM {table} WHERE ({col} IS NULL OR {col} = '') "
+                                f"AND (statut IS NULL OR statut != 'void')").fetchall()
+            dates.update(r[0] for r in rows)
+    finally:
+        conn.close()
     if not dates:
         logger.info("[Auto-ROI] Aucune donnée en attente de résolution.")
-        conn.close()
         return 0
 
     logger.info(f"[Auto-ROI] Validation des résultats pour {len(dates)} date(s)...")
-    resolved = 0
+    # Téléchargement des boxscores SANS connexion ouverte : avant (2026-10-04), la transaction
+    # d'écriture restait ouverte pendant les appels réseau et bloquait les autres jobs.
+    boxes = {}
     for date_str in sorted(dates):
         try:
             box = fetch_final_boxscores(date_str)
@@ -99,6 +102,22 @@ def update_pending_picks() -> int:
         if not box:
             logger.info(f"[Auto-ROI] Les matchs du {date_str} ne sont pas encore terminés ou indisponibles.")
             continue
+        boxes[date_str] = box
+
+    resolved = 0
+    for date_str, box in boxes.items():
+        resolved += _resolve_date(date_str, box)
+    if resolved:
+        logger.info(f"[Auto-ROI] [OK] {resolved} pick(s) résolu(s) via API NHL.")
+    return resolved
+
+
+def _resolve_date(date_str: str, box: dict) -> int:
+    """Écrit les résultats d'une date dans une transaction courte. Renvoie le nombre de picks résolus."""
+    conn = get_connection()
+    c = conn.cursor()
+    resolved = 0
+    try:
         for table, col, stat, market in PICK_TABLES:
             c.execute(f"SELECT id, joueur, equipe, player_id FROM {table} WHERE date = ? "
                       f"AND ({col} IS NULL OR {col} = '') AND (statut IS NULL OR statut != 'void')", (date_str,))
@@ -126,10 +145,9 @@ def update_pending_picks() -> int:
                 if stats is not None:
                     c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?",
                               (stats["goals"], stats["assists"], stats["points"], p_id))
-    conn.commit()
-    conn.close()
-    if resolved:
-        logger.info(f"[Auto-ROI] [OK] {resolved} pick(s) résolu(s) via API NHL.")
+        conn.commit()
+    finally:
+        conn.close()
     return resolved
 
 

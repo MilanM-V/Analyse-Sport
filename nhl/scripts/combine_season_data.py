@@ -48,7 +48,8 @@ def combine(kind: str) -> pd.DataFrame:
             print(f"  [{kind}] {os.path.basename(path)} introuvable — ignoré.")
             continue
         df = pd.read_csv(path, low_memory=False)
-        df["_prio"] = prio
+        # Ajout par concat : un df["_prio"] = ... sur ce DataFrame très large déclenchait un PerformanceWarning
+        df = pd.concat([df, pd.Series(prio, index=df.index, name="_prio")], axis=1)
         frames.append(df)
         print(f"  [{kind}] {os.path.basename(path)} : {len(df):,} lignes, saisons {df['season'].min()}-{df['season'].max()}")
     if not frames:

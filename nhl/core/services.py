@@ -147,6 +147,26 @@ def parse_odds_reply(text: str) -> Optional[tuple]:
     return cote, (parts[1].lower() if len(parts) > 1 else None)
 
 
+def _sync_portfolio(r: Dict[str, Any], cote: Optional[float]) -> None:
+    """Aligne le portefeuille sur la dernière décision /pris ou /skip, sans jamais doublonner.
+
+    Args:
+        r: résultat de record_pick_decision (table, id, joueur, mise).
+        cote: cote prise, ou None si le pari n'est pas (ou plus) joué.
+    """
+    from shared.portfolio import Portfolio
+    pf = Portfolio()
+    market = "BUTEUR" if r["table"] == "picks" else "PASSEUR"
+    bet_id = pf.find_open_bet(r["id"], "nhl", market)
+    if cote is None:
+        if bet_id:
+            pf.cancel_bet(bet_id)
+    elif bet_id:
+        pf.update_bet_odds(bet_id, cote)
+    elif r.get("mise"):
+        pf.log_bet("nhl", r["joueur"], market, cote, r["mise"], r["id"])
+
+
 def handle_pick_command(args: List[str], taken: bool) -> str:
     """Logique des commandes /pris et /skip (sans dépendance à Telegram, testable).
 
@@ -174,15 +194,14 @@ def handle_pick_command(args: List[str], taken: bool) -> str:
         r = record_pick_decision(args[0])
     if not r["ok"]:
         return f"❌ {r['error']}"
+    if not cfg.mode.paper_trading:
+        # Sous la cote seuil : le pari n'est pas joué (comme avant), donc pas au portefeuille
+        _sync_portfolio(r, cote if taken and not r["under_threshold"] else None)
     if not taken:
         return f"⏭️ {r['joueur']} : pari non pris (exclu du ROI)."
     if r["under_threshold"]:
         return (f"⚠️ {r['joueur']} @{cote:.2f} est SOUS la cote seuil {r['cote_seuil']:.2f} : "
                 "EV insuffisante, ne pas parier. Enregistré quand même — /skip pour annuler.")
-    if not cfg.mode.paper_trading and r.get("mise"):
-        from shared.portfolio import Portfolio
-        market = "BUTEUR" if r["table"] == "picks" else "PASSEUR"
-        Portfolio().log_bet("nhl", r["joueur"], market, cote, r["mise"], r["id"])
     return f"✅ {r['joueur']} pris @{cote:.2f}{' chez ' + book if book else ''} (seuil {r['cote_seuil'] or 0:.2f})."
 
 
@@ -463,6 +482,17 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     app.add_handler(CommandHandler("withdraw", withdraw_cmd))
     app.add_handler(CommandHandler("pris", pris_cmd))
     app.add_handler(CommandHandler("skip", skip_cmd))
+
+    async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Erreur dans un handler : trace complète dans les logs, message court à l'utilisateur."""
+        logger.error("Erreur dans un handler Telegram", exc_info=context.error)
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text("❌ Erreur interne, voir les logs du bot.")
+            except Exception as e:  # réseau Telegram indisponible : rien de plus à faire que logger
+                logger.error(f"Message d'erreur Telegram non envoyé : {e}")
+
+    app.add_error_handler(on_error)
 
     async def job_scan_cycle(context: ContextTypes.DEFAULT_TYPE) -> None:
         """Fallback background job for scanning."""
