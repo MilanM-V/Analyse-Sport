@@ -2,6 +2,11 @@
 # Source unique pour tous les seuils et paramètres du bot.
 # V18 — Filtres optimisés sur 2893 joueurs (grid search exhaustif)
 
+[mode]
+# Kill-switch (audit P0) : true = picks envoyés avec la mention PAPER et
+# non comptés dans le Portfolio. Repasser à false seulement après validation.
+paper_trading = true
+
 [thresholds.buteurs]
 # OMEGA Optimal — Buteurs (+87.9 U)
 season_g_min = 0.40
@@ -9,7 +14,7 @@ l10_sog_min = 2.5
 l10_hdcf_min = 1.5
 home_only = false
 opp_ga_min = 2.5
-cote_min = 3.00  # Sécurité : On cible le segment rentable (ROI +54%)
+cote_min = 4.50  # Sécurité : On cible le segment des longshots rentables (>4.5)
 
 [thresholds.passeurs]
 # OMEGA Optimal — Passeurs (+22.1 U)
@@ -60,3 +65,29 @@ season_id = "20262027"
 fallback_season_id = "20252026"
 game_type = "2"         # 2 = saison régulière, 3 = playoffs
 semaphore_limit = 20
+
+[betting]
+# Stratégie de mise (nhl/core/betting.py). Base = phase `p2_apriori` (seuls les poids w
+# sont appris, en log-loss sur la validation 2023-24), puis pistes validées sur
+# validation ET test (nhl/reports/PISTES_AMELIORATION.md) : EV ≥ 4 %, Kelly 1/6,
+# plafonds 5 U/match et 30 U/jour (phase `x_combo` : +32 % de paris, +49 % de gain net).
+markets = ["but", "ast"]
+# Books où l'utilisateur peut parier : la cote d'exécution est la meilleure d'entre eux.
+# Retirer ceux sans compte. Clés The Odds API (région eu).
+exec_books = ["winamax_fr", "betclic_fr", "unibet_fr", "pmu_fr"]
+blend_w_but = 0.65           # poids du modèle vs no-vig Pinnacle (1 - w sur Pinnacle)
+blend_w_ast = 0.80
+cote_min_but = 1.5
+cote_max_but = 15.0
+cote_min_ast = 1.5
+cote_max_ast = 6.0
+ev_min_low = 0.04            # EV minimale (cote < 2.00 / 2.00-3.50 / > 3.50)
+ev_min_mid = 0.04
+ev_min_high = 0.04
+no_pinnacle_extra_ev = 0.05  # EV supplémentaire exigée sans référence Pinnacle
+kelly_fraction = 0.1667      # Kelly 1/6
+min_stake_u = 0.5            # sous ce montant : pas de pari (aucun plancher artificiel)
+max_stake_but_u = 1.5
+max_stake_ast_u = 2.0
+max_game_exposure_u = 5.0    # paris corrélés d'un même match
+max_daily_exposure_u = 30.0
