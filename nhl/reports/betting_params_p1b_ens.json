@@ -1,0 +1,18 @@
+{
+  "blend_w_but": 0.65,
+  "blend_w_ast": 0.8,
+  "enable_but": false,
+  "cote_min_but": 1.5,
+  "cote_max_but": 25.0,
+  "ev_but": "high",
+  "enable_ast": true,
+  "cote_min_ast": 1.5,
+  "cote_max_ast": 3.5,
+  "ev_ast": "std",
+  "no_pinnacle_extra_ev": 9.0,
+  "ev_thresholds": [
+    0.08,
+    0.05,
+    0.1
+  ]
+}
