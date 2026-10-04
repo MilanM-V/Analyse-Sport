@@ -29,6 +29,7 @@ def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
         "cote_proxy": p.get("Cote") if p.get("PriceSource") else None,
         "cote_seuil": p.get("CoteSeuil"), "price_source": p.get("PriceSource"),
         "player_id": p.get("PlayerId"),  # résolution fiable (void si absent du boxscore)
+        "phase": p.get("Phase", "normal"),  # 'early' = mode découverte (moins de 10 matchs)
     }
 
 

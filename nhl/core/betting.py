@@ -10,6 +10,8 @@ core/betting.py — Stratégie de mise (audit P2), utilisée à l'identique par 
 3. Seuils d'EV par tranche de cote lus dans [betting] ev_min_* (à défaut [thresholds.ev_adaptive]).
 4. Kelly fractionné sur la bankroll réelle, SANS plancher (mise < min => pas de pari),
    plafonds par pari, par match (paris corrélés) et par jour.
+5. Mode découverte ([early_season]) : un candidat marqué `early` (joueur à moins de 10 matchs
+   cette saison) exige une EV plus haute et sa mise Kelly est multipliée par `stake_mult`.
 """
 import math
 from dataclasses import dataclass
@@ -37,6 +39,8 @@ class BetParams:
     max_daily_exposure: float
     markets: tuple = ("but", "ast")
     max_bets_per_game: int = 0  # 0 = illimité ; sinon on garde les meilleurs EV de chaque match
+    early_ev_min: float = 0.12   # mode découverte : EV minimale (avant majoration sans Pinnacle)
+    early_stake_mult: float = 0.5
 
     @classmethod
     def from_config(cls, **overrides: Any) -> "BetParams":
@@ -55,6 +59,10 @@ class BetParams:
             markets=tuple(b.markets),
             max_bets_per_game=int(getattr(b, "max_bets_per_game", 0)),
         )
+        es = getattr(cfg, "early_season", None)
+        if es is not None:
+            p.early_ev_min = float(es.ev_min)
+            p.early_stake_mult = float(es.stake_mult)
         for k, v in overrides.items():
             setattr(p, k, v)
         return p
@@ -106,7 +114,7 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
 
     Args:
         candidates: dicts avec au minimum market ('but'|'ast'), p_model, cote (cote
-            d'exécution, None si le book ne cote pas), game_id ; p_novig optionnel.
+            d'exécution, None si le book ne cote pas), game_id ; p_novig et early optionnels.
         bankroll: bankroll en unités (Portfolio.get_balance() en prod).
         params: paramètres (défaut : settings.toml).
         current_exposure: mises déjà engagées aujourd'hui.
@@ -128,6 +136,8 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
         p = blend_probability(c["p_model"], pnv, params.blend_w[m])
         ev = p * cote - 1.0
         thr = ev_threshold(cote, params, has_pin)
+        if c.get("early"):
+            thr = max(thr, params.early_ev_min + (0.0 if has_pin else params.no_pinnacle_extra_ev))
         if ev < thr:
             continue
         scored.append({**c, "p_final": p, "ev": ev, "cote_seuil": min_odds(p, thr)})
@@ -137,6 +147,8 @@ def select_bets(candidates: List[Dict[str, Any]], bankroll: float,
     n_game: Dict[Any, int] = {}
     for c in scored:
         units = kelly_units(c["p_final"], c["cote"], bankroll, params, c["market"])
+        if c.get("early"):
+            units = round(units * params.early_stake_mult * 2) / 2
         if units <= 0:
             continue
         g = c.get("game_id")

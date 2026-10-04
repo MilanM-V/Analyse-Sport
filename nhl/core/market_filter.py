@@ -17,6 +17,7 @@ def evaluate_player_markets(
     v5_p: Dict[str, Any],
     adv_stats: Dict[str, Any],
     is_home: bool,
+    min_gp: int = 10,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Évalue un joueur contre les filtres de base des marchés (Buteur et Passeur).
     Les pointeurs sont désactivés pour ROI négatif.
@@ -27,6 +28,7 @@ def evaluate_player_markets(
         v5_p: Stats saison complète.
         adv_stats: Stats de l'équipe adverse.
         is_home: True si le joueur joue à domicile.
+        min_gp: matchs joués exigés cette saison (0 en mode découverte, cf. evaluate_early_season).
 
     Returns:
         Tuple (cat_but, cat_ast) — chaque valeur est le nom de la
@@ -55,14 +57,56 @@ def evaluate_player_markets(
     is_forward = pos in ('C', 'L', 'R', 'LW', 'RW', 'F', 'W')
     gp = int(v5_p.get('GP', 0)) if v5_p else 0
     
-    if gp >= 10 and (is_forward or (pos == '' and season_g >= 1.0)) and (is_top9 or season_g >= 0.20):
+    if gp >= min_gp and (is_forward or (pos == '' and season_g >= 1.0)) and (is_top9 or season_g >= 0.20):
         if (is_home or is_playoff or not cfg.thresholds.buteurs.home_only):
             cat_but = "BUTEUR"
 
     # Passeurs : Joueurs avec temps de glace significatif
     cat_ast = None
-    if gp >= 10 and (is_top9 or season_a >= 0.30):
+    if gp >= min_gp and (is_top9 or season_a >= 0.30):
         if (is_home or is_playoff or not cfg.thresholds.passeurs.home_only):
             cat_ast = "PASSEUR"
 
     return cat_but, cat_ast
+
+
+MIN_GP = 10  # en dessous : pas de pick, sauf en mode découverte
+
+
+def blend_season_rates(gp: int, rate: float, prev_rate: float, k: float) -> float:
+    """Taux par match mélangé : (buts saison + k × taux saison passée) / (gp + k)."""
+    return (gp * rate + k * prev_rate) / (gp + k)
+
+
+def evaluate_early_season(
+    player: str,
+    p_form: Dict[str, Any],
+    v5_p: Dict[str, Any],
+    adv_stats: Dict[str, Any],
+    is_home: bool,
+    prev: Optional[Dict[str, float]],
+) -> Tuple[Optional[str], Optional[str], str]:
+    """Éligibilité avec le mode découverte ([early_season]) pour les joueurs à moins de 10 matchs.
+
+    À 10 matchs ou plus, la règle normale s'applique et la phase vaut « normal ». En dessous, si
+    le mode est actif et que le joueur a joué au moins `min_prev_gp` matchs la saison passée, ses
+    G/GP et A/GP sont mélangés avec ceux de la saison passée et la phase vaut « early ».
+
+    Args:
+        prev: stats de la saison passée {'GP', 'G_GP', 'A_GP'} (None si inconnues).
+
+    Returns:
+        (cat_but, cat_ast, phase) avec phase « normal » ou « early ».
+    """
+    gp = int(v5_p.get('GP', 0)) if v5_p else 0
+    if gp >= MIN_GP:
+        return (*evaluate_player_markets(player, p_form, v5_p, adv_stats, is_home), "normal")
+    es = getattr(cfg, "early_season", None)
+    if es is None or not es.enabled or not prev or prev.get("GP", 0) < es.min_prev_gp:
+        return None, None, "normal"
+    k = float(es.shrink_k)
+    blended = {**(v5_p or {}),
+               "G_GP": blend_season_rates(gp, float(v5_p.get('G_GP', 0) or 0), prev["G_GP"], k),
+               "A_GP": blend_season_rates(gp, float(v5_p.get('A_GP', 0) or 0), prev["A_GP"], k)}
+    cat_but, cat_ast = evaluate_player_markets(player, p_form, blended, adv_stats, is_home, min_gp=0)
+    return cat_but, cat_ast, "early"

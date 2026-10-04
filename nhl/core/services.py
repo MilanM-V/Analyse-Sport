@@ -127,7 +127,8 @@ def pick_card_text(p: Dict[str, Any], market: str) -> str:
     lieu = "\U0001f3e0" if p.get("IsHome") else "\u2708\ufe0f"
     heure = f" · \U0001f552 {format_match_time(p['Heure'])}" if p.get("Heure") else ""
     seuil = f"{p['CoteSeuil']:.2f}" if p.get("CoteSeuil") else "?"
-    return (f"{emoji} <b>{p['Joueur']}</b> {lieu} — {label}\n"
+    early = " \U0001f9ea découverte" if p.get("Phase") == "early" else ""
+    return (f"{emoji} <b>{p['Joueur']}</b> {lieu} — {label}{early}\n"
             f"{p.get('Match', '')}{heure}\n"
             f"à prendre si cote &gt; <b>{seuil}</b> · {p.get('Mise', '')}  <code>{p.get('Ref', '')}</code>")
 
@@ -281,8 +282,13 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         from nhl.core.database import get_roi_stats
         
         msg = f"💰 <b>ROI ({label})</b> :\n\n"
-        msg += get_roi_stats("picks", "but", days) + "\n"
-        msg += get_roi_stats("picks_assists", "assist", days) + "\n"
+        msg += get_roi_stats("picks", "but", days, phase="normal") + "\n"
+        msg += get_roi_stats("picks_assists", "assist", days, phase="normal") + "\n"
+        # Mode découverte (moins de 10 matchs) : suivi à part, hors critère de passage en réel
+        early = [get_roi_stats(t, col, days, phase="early") for t, col in (("picks", "but"), ("picks_assists", "assist"))]
+        early = [e for e in early if not e.startswith("Pas assez")]
+        if early:
+            msg += "🧪 <b>Mode découverte</b> (hors critère réel)\n" + "\n".join(early) + "\n"
         
         # Indicateur principal du paper trading : EV de clôture vs Pinnacle (audit P1)
         from nhl.config.settings import cfg

@@ -360,7 +360,7 @@ class NhlBot(BaseSportBot):
 
     def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
         """Performs analysis on a wave of matches and sends results."""
-        from nhl.core.market_filter import evaluate_player_markets
+        from nhl.core.market_filter import MIN_GP, evaluate_early_season
         from nhl.core.features import FEATURES_VERSION
         from nhl.core.betting import select_bets
         from nhl.core.formatter import format_telegram_v18
@@ -502,9 +502,12 @@ class NhlBot(BaseSportBot):
             is_home = team in home_teams
 
             # GP de la saison calculé sur les logs (pas de repli sur la saison précédente)
-            v5_eval = {**(v5_p or {}), "GP": self.engine.season_games(player, team, self.get_nhl_session_date())}
-            cat_but, cat_ast = evaluate_player_markets(
-                player, p_form, v5_eval, adv_stats, is_home
+            session_day = self.get_nhl_session_date()
+            v5_eval = {**(v5_p or {}), "GP": self.engine.season_games(player, team, session_day)}
+            # Moins de 10 matchs : mode découverte ([early_season]), taux mélangés avec la saison passée
+            prev = self.engine.prev_season_rates(player, team, session_day) if v5_eval["GP"] < MIN_GP else None
+            cat_but, cat_ast, phase = evaluate_early_season(
+                player, p_form, v5_eval, adv_stats, is_home, prev
             )
 
             is_pp1 = player in pp1_players
@@ -519,7 +522,8 @@ class NhlBot(BaseSportBot):
                 "Synergie": False,
                 "p_form": p_form, "v5_p": v5_p, "adv_stats": adv_stats,
                 "opp_is_b2b": opp_is_b2b, "consec": int(p_form.get('ConsecGoals', 0)),
-                "is_pp1": is_pp1, "is_b2b": is_b2b, "goalie_sv_pct": goalie_sv_pct
+                "is_pp1": is_pp1, "is_b2b": is_b2b, "goalie_sv_pct": goalie_sv_pct,
+                "Phase": phase,
             }
 
             if cat_but:
@@ -608,7 +612,8 @@ class NhlBot(BaseSportBot):
                         ep[score_key] = p["PModel"]
                         ep.setdefault("Features", {})[market] = p["Features"]
                 cands.append({"market": market, "p_model": p["PModel"], "p_novig": p["PNovig"],
-                              "cote": p["Cote"], "game_id": game_of_team.get(p["Equipe"]), "_pick": p})
+                              "cote": p["Cote"], "game_id": game_of_team.get(p["Equipe"]),
+                              "early": p.get("Phase") == "early", "_pick": p})
 
         selected = select_bets(cands, bankroll=self.portfolio.get_balance(),
                                current_exposure=self.portfolio.get_pending_exposure())

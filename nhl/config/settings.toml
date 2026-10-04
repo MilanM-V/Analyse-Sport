@@ -92,3 +92,14 @@ max_stake_ast_u = 2.0
 max_game_exposure_u = 5.0    # paris corrélés d'un même match
 max_bets_per_game = 1        # on ne garde que le meilleur EV de chaque match (0 = illimité)
 max_daily_exposure_u = 30.0
+
+[early_season]
+# Mode découverte (2026-10-04) : picks pour les joueurs à moins de 10 matchs cette saison, avec
+# leurs G/GP et A/GP mélangés à ceux de la saison passée : (saison + shrink_k × saison passée) / (gp + shrink_k).
+# EV exigée plus haute et mise réduite ; picks marqués 🧪 et exclus du compteur go_live_min_bets.
+# Bascule automatique en mode normal à 10 matchs. Backtest : nhl/reports/EARLY_SEASON_2026-10-04.md
+enabled = true
+min_prev_gp = 20      # matchs joués la saison passée (les recrues sans historique restent exclues)
+shrink_k = 10
+ev_min = 0.15        # choisi sur la validation (EV 8 / 12 / 15 %) : +6,5 U en 2023-24, -0,3 U en contrôle 2024-25 (≈ neutre)
+stake_mult = 0.5      # mise Kelly × 0,5

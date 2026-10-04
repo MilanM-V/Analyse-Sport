@@ -121,6 +121,26 @@ class FeatureEngine:
             self._season_gp = {(season, day.value): cur.groupby("playerId").size().to_dict()}
         return int(self._season_gp[(season, day.value)].get(hit[0], 0))
 
+    def prev_season_rates(self, name: str, team: str, today: Optional[str] = None) -> Optional[Dict[str, float]]:
+        """GP, G/GP et A/GP de la saison régulière PRÉCÉDENTE (mode découverte, [early_season]).
+
+        Returns:
+            {'GP', 'G_GP', 'A_GP'}, ou None si le joueur est inconnu ou n'a pas joué la saison passée.
+        """
+        from nhl.data.gamelog_nhlapi import current_season
+        hit = self.resolve(name, team)
+        if hit is None or self.logs is None:
+            return None
+        day = pd.Timestamp(today or date.today().isoformat())
+        prev = current_season(day.date()) - 1
+        if getattr(self, "_prev_rates_season", None) != prev:
+            lg = self.logs[(self.logs["season"] == prev) & (self.logs["game_type"] == 2)]
+            agg = lg.assign(a=lg["a1"] + lg["a2"]).groupby("playerId").agg(GP=("g", "size"), G=("g", "sum"), A=("a", "sum"))
+            self._prev_rates = {pid: {"GP": int(r.GP), "G_GP": r.G / r.GP, "A_GP": r.A / r.GP}
+                                for pid, r in agg.iterrows()}
+            self._prev_rates_season = prev
+        return self._prev_rates.get(hit[0])
+
     def _build_name_index(self) -> None:
         last = (self.logs.sort_values("gameDate")
                     .drop_duplicates("playerId", keep="last")[["playerId", "name", "team", "gameDate", "position"]])

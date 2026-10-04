@@ -146,13 +146,18 @@ def format_telegram_v18(
                 for r in m_picks:
                     home_icon = '\U0001f3e0' if r['IsHome'] else '\u2708\ufe0f'
                     cote_str = _pick_line(r)
-                    msg += f"  \u2022 {home_icon} <b>{r['Joueur']}</b>{cote_str}\n"
+                    early = " \U0001f9ea" if r.get('Phase') == 'early' else ""
+                    msg += f"  \u2022 {home_icon} <b>{r['Joueur']}</b>{early}{cote_str}\n"
 
         m_all = [r for picks_list in [buts, assists, points]
                  for r in picks_list if r['Equipe'] in (h_abbr, a_abbr)]
         if not m_all:
             msg += "  <i>\u26a0\ufe0f Aucun pick sur ce match.</i>\n"
         msg += "\n"
+
+    if any(r.get('Phase') == 'early' for r in buts + assists + points):
+        msg += ("\U0001f9ea <i>Mode découverte : joueur à moins de 10 matchs cette saison, estimation "
+                "basée aussi sur la saison passée. Mise réduite de moitié.</i>\n\n")
 
     # --- COMBINÉS INTELLIGENTS (V18.3) ---
     msg += _build_parlays_section(buts, assists, points, wave_label)

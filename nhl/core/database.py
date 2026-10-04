@@ -161,6 +161,8 @@ def init_db():
         # Audit 2026-10-04 : résolution par playerId et paris annulés (joueur non aligné)
         ("player_id", "INTEGER DEFAULT NULL"),
         ("statut", "TEXT DEFAULT NULL"),
+        # 2026-10-04 : mode découverte ([early_season]) = 'early', sinon 'normal'
+        ("phase", "TEXT DEFAULT 'normal'"),
     ]
     
     for table in tables_to_fix:
@@ -348,7 +350,8 @@ def reset_db() -> None:
     conn.commit()
     conn.close()
 
-def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "all", game_mode: str = "all") -> str:
+def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "all", game_mode: str = "all",
+                  phase: str = "all") -> str:
     """
     Calculates and returns ROI statistics for a specific market.
     Uses actual odds (cote) for profit calculation when available.
@@ -358,6 +361,7 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
         target_col: The column representing the result (but, assist, point).
         days: 'all' or string number of days.
         game_mode: 'all', 'regular', or 'playoff' to filter by game mode.
+        phase: 'all', 'normal' ou 'early' (picks du mode découverte).
 
     Returns:
         A formatted HTML string with ROI stats.
@@ -382,6 +386,9 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
     if game_mode in ("regular", "playoff"):
         query += " AND game_mode = ?"
         params.append(game_mode)
+    if phase in ("normal", "early"):
+        query += " AND COALESCE(phase, 'normal') = ?"
+        params.append(phase)
 
     c.execute(query, params)
     rows = c.fetchall()
@@ -434,8 +441,12 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
 
     return msg
 
-def closing_ev_summary(days: str = "all", n_boot: int = 2000, seed: int = 0) -> Dict[str, Any]:
+def closing_ev_summary(days: str = "all", n_boot: int = 2000, seed: int = 0,
+                       phase: str = "normal") -> Dict[str, Any]:
     """EV de clôture des paris : closing_p_novig × cote prise − 1 (indicateur principal du paper).
+
+    Par défaut, seuls les picks du mode normal comptent (le critère de passage en réel ne porte
+    pas sur le mode découverte) ; phase='early' ou 'all' pour les autres.
 
     La cote prise est la cote réelle saisie via /pris si elle existe, sinon la cote proxy.
     Le « CLV prix » (cote prise / cote de clôture) n'est pas utilisé : en mode proxy, la cote
@@ -454,6 +465,9 @@ def closing_ev_summary(days: str = "all", n_boot: int = 2000, seed: int = 0) -> 
                    f"WHERE closing_p_novig IS NOT NULL AND (pris IS NULL OR pris != 0) "
                    f"AND (statut IS NULL OR statut != 'void')")
             args: list = []
+            if phase in ("normal", "early"):
+                sql += " AND COALESCE(phase, 'normal') = ?"
+                args.append(phase)
             if days != "all":
                 sql += " AND date >= ?"
                 args.append((datetime.now() - timedelta(days=int(days))).strftime("%Y-%m-%d"))
