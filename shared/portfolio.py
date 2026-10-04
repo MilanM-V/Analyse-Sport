@@ -187,6 +187,52 @@ class Portfolio:
         )
         return bet_id
 
+    def find_open_bet(self, pick_id: int, sport: str, market: Optional[str] = None) -> Optional[int]:
+        """Id du pari NON résolu lié à un pick (None s'il n'y en a pas).
+
+        Args:
+            pick_id: ID du pick dans la base du sport.
+            sport: Nom du sport ('nhl').
+            market: marché ('BUTEUR', 'PASSEUR'...) : les tables de picks ont des séquences d'id distinctes.
+        """
+        sql = "SELECT id FROM portfolio WHERE pick_id = ? AND sport = ? AND resolved = 0"
+        args: list = [pick_id, sport]
+        if market:
+            sql += " AND market = ?"
+            args.append(market)
+        conn = self._get_conn()
+        try:
+            row = conn.execute(sql + " ORDER BY id LIMIT 1", args).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+
+    def update_bet_odds(self, bet_id: int, cote: float) -> None:
+        """Corrige la cote d'un pari non résolu (nouvelle saisie /pris)."""
+        conn = self._get_conn()
+        try:
+            conn.execute("UPDATE portfolio SET cote = ? WHERE id = ? AND resolved = 0", (cote, bet_id))
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info(f"[Portfolio] Pari #{bet_id} : cote corrigée à {cote:.2f}")
+
+    def cancel_bet(self, bet_id: int) -> bool:
+        """Retire un pari non résolu du portefeuille (pari finalement non pris : /skip).
+
+        Returns:
+            True si une ligne a été supprimée.
+        """
+        conn = self._get_conn()
+        try:
+            n = conn.execute("DELETE FROM portfolio WHERE id = ? AND resolved = 0", (bet_id,)).rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        if n:
+            logger.info(f"[Portfolio] Pari #{bet_id} retiré (non pris).")
+        return bool(n)
+
     def resolve_bet(self, bet_id: int, won: bool, void: bool = False) -> float:
         """Résout un pari et calcule le gain/perte.
 
