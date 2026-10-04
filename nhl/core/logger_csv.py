@@ -5,6 +5,7 @@ Extrait de bot_logic.py pour séparation des responsabilités.
 """
 import os
 import csv
+import json
 import logging
 from typing import Dict, List, Any
 
@@ -14,6 +15,15 @@ from shared.portfolio import Portfolio
 
 logger = logging.getLogger("NHL.LoggerCSV")
 portfolio = Portfolio()
+
+
+def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Colonnes de traçabilité du pari (audit P3) : probas, EV, version et vecteur exact du modèle."""
+    return {
+        "p_model": p.get("PModel"), "p_novig": p.get("PNovig"), "p_final": p.get("Proba"),
+        "ev": p.get("EV"), "bookmaker": p.get("Bookmaker"), "model_version": p.get("ModelVersion"),
+        "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
+    }
 
 
 def log_picks_to_db(
@@ -54,9 +64,10 @@ def log_picks_to_db(
             "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
             "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
             "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
+            **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum"):
+        if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading:
             portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
     for p in asts:
@@ -75,9 +86,10 @@ def log_picks_to_db(
             "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
             "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
             "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
+            **_trace(p),
         })
-        if pick_id and p.get("Cote") and p.get("MiseNum"):
+        if pick_id and p.get("Cote") and p.get("MiseNum") and not cfg.mode.paper_trading:
             portfolio.log_bet("nhl", p["Joueur"], p["Categorie"], p["Cote"], p["MiseNum"], pick_id)
 
     # Marché Points supprimé tel que demandé par l'analyse.
@@ -101,7 +113,8 @@ def log_picks_to_db(
             "team_scoring_env": (adv.get("GA_G", 0) * adv.get("HDCA_G", 0)) if adv else 0.0,
             "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
             "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0
+            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
+            "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
         })
 
 

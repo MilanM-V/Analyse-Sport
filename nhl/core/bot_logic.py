@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
+from shared.utils import paris_now
 import subprocess
 import sys
 from typing import Dict, List, Any, Optional, Set, Tuple
@@ -11,8 +12,8 @@ from typing import Dict, List, Any, Optional, Set, Tuple
 # Ajout du dossier racine au sys.path pour permettre l'exécution standalone
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import core.loaders as loaders
-import core.scraper as scraper
+import nhl.core.loaders as loaders
+import nhl.core.scraper as scraper
 
 import asyncio
 from nhl.core.datastore import DataStore
@@ -57,6 +58,39 @@ class NhlBot(BaseSportBot):
         self.players_log_path: str = './stats/players_log.csv'
         self.fichier_compos_temp: str = "compos_live.txt"
         self.is_paused: bool = False
+        self.sent_state_path: str = "sent_matches.json"
+        self._load_sent_matches()
+        from nhl.core.inference import FeatureEngine
+        self.engine = FeatureEngine()
+
+    def _load_sent_matches(self) -> None:
+        """Recharge les matchs déjà envoyés pour la session NHL courante.
+
+        Le watchdog redémarre le bot à chaque pull : sans cette persistance,
+        les mêmes vagues étaient renvoyées (et loggées) plusieurs fois.
+        """
+        try:
+            with open(self.sent_state_path, encoding="utf-8") as f:
+                state = json.load(f)
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning(f"État des matchs envoyés illisible ({e}) — ignoré.")
+            return
+        if state.get("session_date") == self.get_nhl_session_date():
+            self.matchs_envoyes.update(state.get("matchs", []))
+            self.vagues_envoyees.update(state.get("vagues", []))
+            logger.info(f"{len(self.matchs_envoyes)} match(s) déjà envoyé(s) aujourd'hui rechargé(s).")
+
+    def _save_sent_matches(self) -> None:
+        """Écrit l'état des matchs envoyés sur disque."""
+        try:
+            with open(self.sent_state_path, "w", encoding="utf-8") as f:
+                json.dump({"session_date": self.get_nhl_session_date(),
+                           "matchs": sorted(self.matchs_envoyes),
+                           "vagues": sorted(self.vagues_envoyees)}, f)
+        except OSError as e:
+            logger.error(f"Impossible de sauvegarder l'état des matchs envoyés : {e}")
 
     @staticmethod
     def get_nhl_session_date() -> str:
@@ -66,7 +100,7 @@ class NhlBot(BaseSportBot):
         Returns:
             Date string in YYYY-MM-DD format.
         """
-        return (datetime.now() - timedelta(hours=14)).strftime("%Y-%m-%d")
+        return (paris_now() - timedelta(hours=14)).strftime("%Y-%m-%d")
 
     def is_active_hours(self) -> bool:
         """
@@ -75,9 +109,9 @@ class NhlBot(BaseSportBot):
         Returns:
             True if active, False otherwise.
         """
-        now = datetime.now()
+        now = paris_now()
         hour = now.hour
-        return (hour > 16 or (hour == 16 and datetime.now().minute >= 30)) or hour <= 4
+        return (hour > 16 or (hour == 16 and paris_now().minute >= 30)) or hour <= 4
 
     def update_daily_stats(self) -> bool:
         """
@@ -86,7 +120,7 @@ class NhlBot(BaseSportBot):
         Returns:
             True if successful, False otherwise.
         """
-        now = datetime.now()
+        now = paris_now()
         nhl_date = self.get_nhl_session_date()
 
         ok, ko_files = self._check_csv_integrity()
@@ -107,6 +141,7 @@ class NhlBot(BaseSportBot):
                     return False
 
                 self.datastore.force_refresh()
+                self.engine.refresh()
                 logger.info("Fichiers API NHL mis à jour avec succès et chargés en RAM.")
                 return True
             except Exception as e:
@@ -130,7 +165,7 @@ class NhlBot(BaseSportBot):
             "power play.csv": 50, "goalies.csv": 30, "on_ice.csv": 50, "pk.csv": 10,
         }
         max_age_days = 7  # Fichiers plus vieux que 7 jours → forcer un re-fetch
-        now_ts = datetime.now().timestamp()
+        now_ts = paris_now().timestamp()
         ko = []
         for filename, min_lines in required_csv.items():
             path = f"./stats/{filename}"
@@ -153,18 +188,21 @@ class NhlBot(BaseSportBot):
 
     def parse_match_datetime(self, time_str: str) -> Optional[datetime]:
         """Parses Flashscore time string into a datetime object."""
-        now = datetime.now()
+        now = paris_now()
         try:
-            dt = datetime.strptime(f"{time_str} {now.year}", "%d.%m. %H:%M %Y")
+            # L'année n'est pas fournie : on prend celle qui place le match au plus près
+            # de maintenant (gère le passage 31.12 -> 01.01).
+            dts = [datetime.strptime(f"{time_str} {y}", "%d.%m. %H:%M %Y") for y in (now.year - 1, now.year, now.year + 1)]
+            dt = min(dts, key=lambda d: abs((d - now).total_seconds()))
             if dt < now - timedelta(hours=12):
                 dt += timedelta(days=1)
             return dt
-        except Exception:
+        except ValueError:
             return None
 
     def purge_old_matches(self) -> None:
         """Removes matches older than 5 minutes from memory."""
-        now = datetime.now()
+        now = paris_now()
         a_supprimer = []
         for match_id, data in self.compos_en_memoire.items():
             dt = self.parse_match_datetime(data["match_info"]["time"])
@@ -218,13 +256,13 @@ class NhlBot(BaseSportBot):
         """Checks if a wave should be sent regardless of completeness due to time limit."""
         first_dt = self.parse_match_datetime(self.compos_en_memoire[wave_ids[0]]["match_info"]["time"])
         if not first_dt: return False
-        mins_before = (first_dt - datetime.now()).total_seconds() / 60
+        mins_before = (first_dt - paris_now()).total_seconds() / 60
         return mins_before <= self.force_envoi_min_avant
 
     def run_scan_cycle(self) -> None:
         """Main periodic task: scans Flashscore, updates lineups, and triggers evaluation."""
         if self.is_paused:
-            logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Bot en PAUSE. Scan ignoré.")
+            logger.info(f"[{paris_now().strftime('%H:%M:%S')}] Bot en PAUSE. Scan ignoré.")
             return
 
         if not self._scan_lock.acquire(blocking=False):
@@ -236,13 +274,13 @@ class NhlBot(BaseSportBot):
                 return
 
             mode_icon = "🏆" if cfg.api.mode == "playoff" else "🏒"
-            logger.info(f"\n[{datetime.now().strftime('%H:%M:%S')}] {mode_icon} Lancement du scan API / RotoWire (Mode: {cfg.api.mode})...")
+            logger.info(f"\n[{paris_now().strftime('%H:%M:%S')}] {mode_icon} Lancement du scan API / RotoWire (Mode: {cfg.api.mode})...")
             self.purge_old_matches()
 
             self.matches_du_jour = scraper.get_scheduled_matches()
 
             if not self.is_active_hours():
-                logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Hors horaires (05h-17h). Scan des compos ignoré.")
+                logger.info(f"[{paris_now().strftime('%H:%M:%S')}] Hors horaires (05h-17h). Scan des compos ignoré.")
                 return
 
             for m in self.matches_du_jour:
@@ -305,16 +343,18 @@ class NhlBot(BaseSportBot):
                 for mid in wave:
                     self.matchs_envoyes.add(mid)
                     ready_ids.append(mid)
-                    
+
         if ready_ids:
+            self._save_sent_matches()
             wave_label = f"Matchs du Jour ({len(ready_ids)} matchs)"
             logger.info(f"   Vagues combinées {wave_label}   ENVOI !")
             self.run_analysis_and_send(ready_ids, wave_label)
 
     def run_analysis_and_send(self, wave_ids: List[str], wave_label: str, is_early: bool = False) -> None:
         """Performs analysis on a wave of matches and sends results."""
-        from nhl.core.market_filter import load_ml_models, prepare_features_for_player, evaluate_player_markets, get_adaptive_ev_threshold
-        from nhl.core.kelly import is_cote_valid, apply_kelly_to_picks
+        from nhl.core.market_filter import evaluate_player_markets
+        from nhl.core.features import FEATURES_VERSION
+        from nhl.core.betting import select_bets
         from nhl.core.formatter import format_telegram_v18
         from nhl.core.logger_csv import log_picks_to_db, log_picks_to_csv
 
@@ -334,11 +374,12 @@ class NhlBot(BaseSportBot):
                         f"{'-'*40}\n")
 
         ds = self.datastore
-        TODAY = datetime.now().strftime("%Y-%m-%d")
+        TODAY = paris_now().strftime("%Y-%m-%d")
 
         matches_soir = []
         compos_brutes = []
         goalies = set()
+        rotowire_teams = {}
 
         for mid in wave_ids:
             m = self.compos_en_memoire[mid]["match_info"]
@@ -352,7 +393,10 @@ class NhlBot(BaseSportBot):
             
             for key in ["f1_dom", "f1_ext", "f2_dom", "f2_ext"]:
                 if key in c and isinstance(c[key], list):
+                    team_for_key = home if "dom" in key else away
+                    team_abbr = loaders.clean_team_name(team_for_key)
                     for player in c[key]:
+                        matched_player = player
                         if player in ds.known_players:
                             compos_brutes.append(player)
                         else:
@@ -362,10 +406,12 @@ class NhlBot(BaseSportBot):
                             for known_p in ds.known_players:
                                 if normalize_name(known_p) == n_player:
                                     compos_brutes.append(known_p)
+                                    matched_player = known_p
                                     matched = True
                                     break
                             if not matched:
                                 compos_brutes.append(player)
+                        rotowire_teams[matched_player] = team_abbr
 
         compos_filtrees = [p for p in compos_brutes if p in ds.form_data]
         
@@ -388,7 +434,14 @@ class NhlBot(BaseSportBot):
         pp1_players = set(loaders.get_auto_pp1_players(ds.form_data, ds.pp_stats, list(opponents.keys())))
         seen_players: Set[str] = set()
 
-        ml_models = load_ml_models()
+        if self.engine.logs is None:
+            self.engine.refresh()
+        ml_models = {m: b for m, b in self.engine.models.items()
+                     if b.get("features_version") == FEATURES_VERSION}
+        for m in set(self.engine.models) - set(ml_models):
+            logger.error(f"Modèle '{m}' incompatible (features_version="
+                         f"{self.engine.models[m].get('features_version')} ≠ {FEATURES_VERSION}) : "
+                         f"ré-entraîner avec nhl/scripts/train_models.py. Aucun pick {m} émis.")
 
         final_picks_but: List[Dict[str, Any]] = []
         final_picks_ast: List[Dict[str, Any]] = []
@@ -404,7 +457,16 @@ class NhlBot(BaseSportBot):
             seen_players.add(player)
 
             p_form = ds.form_data[player]
-            team = loaders.clean_team_name(p_form['Team'])
+            form_team = loaders.clean_team_name(p_form['Team'])
+            compo_team = rotowire_teams.get(player, form_team)
+            
+            if form_team != compo_team:
+                logger.warning(f"⚠️ TRADE DÉTECTÉ: {player} form_data={form_team}, "
+                               f"RotoWire={compo_team}. Utilisation de l'équipe RotoWire.")
+                team = compo_team
+            else:
+                team = form_team
+
             if p_form['ATOI'] < cfg.thresholds.general.atoi_min or team not in opponents:
                 continue
 
@@ -491,79 +553,54 @@ class NhlBot(BaseSportBot):
             odds_but = odds_map.get(p["Joueur"], {}).get("BUTS", {})
             if isinstance(odds_but, dict): p["Cote"] = odds_but.get("price")
 
-        # Passe 3 : Inférence ML avec `implied_prob` et filtrage final
-        for p in candidates_but:
-            odds_data = odds_map.get(p["Joueur"], {}).get("BUTS", {})
-            cote = odds_data.get("price") if isinstance(odds_data, dict) else None
-            p["Cote"] = cote
-            p["Bookmaker"] = odds_data.get("bookmaker", "Inconnu") if isinstance(odds_data, dict) else "Inconnu"
+        # Passe 3 : Inférence ML (chaîne de features unique, cf. nhl/core/features.py)
+        games = []
+        for mid in wave_ids:
+            mi = self.compos_en_memoire[mid]["match_info"]
+            games.append({"gameId": int(mi["id"]), "home": loaders.clean_team_name(mi["home"]),
+                          "away": loaders.clean_team_name(mi["away"])})
+        lineup = {p["Joueur"]: p["Equipe"] for p in candidates_but + candidates_ast}
+        preds = self.engine.predict(games, lineup, self.get_nhl_session_date()) if ml_models else {}
 
-            if 'but' in ml_models:
-                feat_list = ml_models['but'].get('features', [])
-                if feat_list:
-                    X_player = prepare_features_for_player(
-                        p["p_form"], p["v5_p"], p["adv_stats"], p["IsHome"],
-                        p["is_b2b"], p["opp_is_b2b"], p["is_pp1"], p["consec"],
-                        feat_list, cote=cote, goalie_sv_pct=p["goalie_sv_pct"],
-                        player_name=p["Joueur"], priors_data=ds.priors
-                    )
-                    proba_but = float(ml_models['but']['model'].predict_proba(X_player)[0, 1])
-                    p["Proba"] = proba_but
-                    
-                    # Filtre strict Buteur (Phase 4)
-                    ev_but = (proba_but * cote - 1.0) if cote else 0.0
-                    min_ev = get_adaptive_ev_threshold(cote) if cote else 0.05
-                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
-                    if proba_but >= 0.60 or ev_but >= min_ev:
-                        for ep in all_evaluated_players:
-                            if ep["Joueur"] == p["Joueur"]: ep["Score_But"] = proba_but
+        # Passe 4 : stratégie de mise P2 (nhl/core/betting.py) — mélange modèle / Pinnacle
+        # no-vig, EV sur la cote Winamax uniquement, Kelly sans plancher, plafonds par match/jour.
+        game_of_team = {}
+        for g in games:
+            game_of_team[g["home"]] = g["gameId"]
+            game_of_team[g["away"]] = g["gameId"]
+        cands = []
+        for market, candidates, odds_key, score_key in (
+            ("but", candidates_but, "BUTS", "Score_But"),
+            ("ast", candidates_ast, "ASSISTS", "Score_Assist"),
+        ):
+            for p in candidates:
+                odds_data = odds_map.get(p["Joueur"], {}).get(odds_key, {})
+                odds_data = odds_data if isinstance(odds_data, dict) else {}
+                p["Cote"] = odds_data.get("price")
+                p["Bookmaker"] = odds_data.get("bookmaker", "Inconnu")
+                p["PNovig"] = odds_data.get("p_novig")
+                pred = preds.get(p["Joueur"])
+                if market not in ml_models or not pred or market not in pred:
+                    continue
+                p["PModel"] = pred[market]
+                p["Features"] = pred["features"].get(market, {})
+                p["ModelVersion"] = f"{ml_models[market].get('algo')}@{ml_models[market].get('train_cutoff')}"
+                for ep in all_evaluated_players:
+                    if ep["Joueur"] == p["Joueur"]:
+                        ep[score_key] = p["PModel"]
+                        ep.setdefault("Features", {})[market] = p["Features"]
+                cands.append({"market": market, "p_model": p["PModel"], "p_novig": p["PNovig"],
+                              "cote": p["Cote"], "game_id": game_of_team.get(p["Equipe"]), "_pick": p})
 
-                        final_picks_but.append(p)
+        selected = select_bets(cands, bankroll=self.portfolio.get_balance(),
+                               current_exposure=self.portfolio.get_pending_exposure())
+        for b in selected:
+            p = b["_pick"]
+            p.update(Proba=b["p_final"], EV=b["ev"], MiseNum=b["mise"], Mise=f"{b['mise']} U")
+            (final_picks_but if b["market"] == "but" else final_picks_ast).append(p)
+        logger.info(f"  Candidats avec proba : {len(cands)} | Paris retenus : {len(selected)} "
+                    f"(but {len(final_picks_but)}, ast {len(final_picks_ast)})")
 
-        for p in candidates_ast:
-            odds_data = odds_map.get(p["Joueur"], {}).get("ASSISTS", {})
-            cote = odds_data.get("price") if isinstance(odds_data, dict) else None
-            p["Cote"] = cote
-            p["Bookmaker"] = odds_data.get("bookmaker", "Inconnu") if isinstance(odds_data, dict) else "Inconnu"
-
-            if 'ast' in ml_models:
-                feat_list = ml_models['ast'].get('features', [])
-                if feat_list:
-                    X_player = prepare_features_for_player(
-                        p["p_form"], p["v5_p"], p["adv_stats"], p["IsHome"],
-                        p["is_b2b"], p["opp_is_b2b"], p["is_pp1"], p["consec"],
-                        feat_list, cote=cote, goalie_sv_pct=p["goalie_sv_pct"],
-                        player_name=p["Joueur"], priors_data=ds.priors
-                    )
-                    X_pred = X_player
-                    proba_ast = float(ml_models['ast']['model'].predict_proba(X_pred)[0, 1])
-                    p["Proba"] = proba_ast
-
-                    # Filtre strict Passeur (Phase 4)
-                    ev_ast = (proba_ast * cote - 1.0) if cote else 0.0
-                    min_ev_ast = get_adaptive_ev_threshold(cote) if cote else 0.05
-                    # NOTE AI: Remplacement de l'EV codé en dur (0.30) par get_adaptive_ev_threshold pour laisser passer les picks EV+ réalistes
-                    if proba_ast >= 0.60 or ev_ast >= min_ev_ast:
-                        for ep in all_evaluated_players:
-                            if ep["Joueur"] == p["Joueur"]: ep["Score_Assist"] = proba_ast
-
-                        final_picks_ast.append(p)
-
-        final_picks_but = [p for p in final_picks_but if is_cote_valid(p, cfg.thresholds.buteurs.cote_min)]
-        final_picks_ast = [p for p in final_picks_ast if is_cote_valid(p, cfg.thresholds.passeurs.cote_min)]
-
-        current_exposure = self.portfolio.get_pending_exposure()
-        max_exposure = 15.0
-        
-        # Penalité Kelly si le modèle a sous-performé récemment
-        brier_but = ml_models.get('but', {}).get('holdout_brier', 0.15)
-        brier_penalty_but = 4.0 if brier_but and brier_but > 0.165 else 0.0
-        current_exposure = apply_kelly_to_picks(final_picks_but, current_exposure, max_exposure, brier_penalty=brier_penalty_but)
-
-        brier_ast = ml_models.get('ast', {}).get('holdout_brier', 0.15)
-        brier_penalty_ast = 4.0 if brier_ast and brier_ast > 0.165 else 0.0
-        current_exposure = apply_kelly_to_picks(final_picks_ast, current_exposure, max_exposure, brier_penalty=brier_penalty_ast)
-            
         msg = format_telegram_v18(
             final_picks_but, final_picks_ast, [],
             wave_label, wave_ids, self.compos_en_memoire
@@ -574,20 +611,6 @@ class NhlBot(BaseSportBot):
             session_date = self.get_nhl_session_date()
             log_picks_to_db(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, ds)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
-            
-            # --- EXPORT DASHBOARD ---
-            try:
-                import importlib.util
-                # bot_logic.py is in nhl/core/ -> 3 dirnames to get to root
-                export_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dashboard", "exporter.py")
-                spec = importlib.util.spec_from_file_location("dashboard_exporter", export_path)
-                dashboard_exporter = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(dashboard_exporter)
-                
-                dashboard_exporter.export_data()
-                dashboard_exporter.git_commit_and_push()
-            except Exception as e:
-                logger.error(f"Erreur Export Dashboard : {e}")
 
     # Plafonds exposés pour les tests (délègue au module kelly)
     from nhl.core.kelly import CATEGORY_CAPS
@@ -617,5 +640,6 @@ class NhlBot(BaseSportBot):
             self.compos_en_memoire.clear()
             self.vagues_envoyees.clear()
             self.matchs_envoyes.clear()
+            self._save_sent_matches()
             logger.info("Nettoyage de fin de journée terminé.")
 

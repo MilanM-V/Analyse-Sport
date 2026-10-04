@@ -142,6 +142,15 @@ def init_db():
         ("sog", "REAL DEFAULT 0"),
         ("atoi", "REAL DEFAULT 0"),
         ("goalie_sv_pct", "REAL DEFAULT NULL"),  # P5: Save % du gardien adverse
+        # Audit P2/P3 : traçabilité complète du pari
+        ("p_model", "REAL DEFAULT NULL"),
+        ("p_novig", "REAL DEFAULT NULL"),
+        ("p_final", "REAL DEFAULT NULL"),
+        ("ev", "REAL DEFAULT NULL"),
+        ("bookmaker", "TEXT DEFAULT NULL"),
+        ("closing_p_novig", "REAL DEFAULT NULL"),
+        ("model_version", "TEXT DEFAULT NULL"),
+        ("features_json", "TEXT DEFAULT NULL"),
     ]
     
     for table in tables_to_fix:
@@ -170,6 +179,17 @@ def init_db():
             logger.info(f"Migration V14 : Colonne '{col_name}' ajoutée à la table 'players'.")
         except sqlite3.OperationalError: pass
     
+    # P0 : un seul pick par (date, joueur) et par marché. Les redémarrages du bot
+    # (watchdog) renvoyaient les mêmes vagues et loggaient des doublons.
+    for table in ("picks", "picks_assists", "picks_points"):
+        try:
+            c.execute(f"DELETE FROM {table} WHERE id NOT IN (SELECT MIN(id) FROM {table} GROUP BY date, joueur)")
+            if c.rowcount:
+                logger.info(f"🧹 {c.rowcount} doublon(s) supprimé(s) dans '{table}'.")
+            c.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_date_joueur ON {table} (date, joueur)")
+        except sqlite3.Error as e:
+            logger.error(f"❌ Index d'unicité {table} : {e}")
+
     conn.commit()
     conn.close()
     ensure_schema()
@@ -178,10 +198,15 @@ def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Co
     """
     Inserts a selected pick into the specified table.
 
+    Un pick déjà présent pour (date, joueur) est ignoré (index unique).
+
     Args:
         table: Table name ('picks', 'picks_assists', 'picks_points').
         pick_data: Dictionary containing pick statistics.
         conn: Optional existing database connection.
+
+    Returns:
+        L'id du pick inséré, ou None s'il existait déjà.
     """
     auto_close = conn is None
     if auto_close:
@@ -191,9 +216,11 @@ def insert_pick(table: str, pick_data: Dict[str, Any], conn: Optional[sqlite3.Co
     cols = ', '.join(pick_data.keys())
     placeholders = ', '.join(['?'] * len(pick_data))
 
-    sql = f'INSERT INTO {table} ({cols}) VALUES ({placeholders})'
+    sql = f'INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})'
     c.execute(sql, list(pick_data.values()))
-    pick_id = c.lastrowid
+    pick_id = c.lastrowid if c.rowcount else None
+    if pick_id is None:
+        logger.info(f"Pick déjà enregistré ignoré : {pick_data.get('joueur')} ({pick_data.get('date')}, {table})")
 
     if auto_close:
         conn.commit()

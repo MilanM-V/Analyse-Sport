@@ -6,7 +6,7 @@ Extrait de bot_logic.py pour réutilisation par le dashboard et les tests.
 import logging
 from typing import Dict, Optional
 
-from config.settings import cfg
+from nhl.config.settings import cfg
 
 logger = logging.getLogger("NHL_Bot")
 
@@ -94,14 +94,15 @@ def is_cote_valid(pick: dict, cote_min: float) -> bool:
         return False
         
     ev = (pick["Proba"] * pick["Cote"]) - 1.0
-    # FILTRE EV ADAPTATIF (P9) : Seuil dynamique selon la hauteur de la cote
+    # FILTRE EV ADAPTATIF (P9) : seuils lus dans [thresholds.ev_adaptive] (source unique)
     cote = pick["Cote"]
-    if cote < 2.00:
-        min_ev = 0.08   # 8% pour contrer le vig bookmaker sur les petites cotes
-    elif cote <= 3.50:
-        min_ev = 0.05   # 5% zone standard
+    thr = cfg.thresholds.ev_adaptive
+    if cote < thr.low_odds_cutoff:
+        min_ev = thr.low_odds_min_ev
+    elif cote <= thr.mid_odds_cutoff:
+        min_ev = thr.mid_odds_min_ev
     else:
-        min_ev = 0.10   # 10% pour compenser la forte variance sur les grosses cotes
+        min_ev = thr.high_odds_min_ev
 
     if ev < min_ev:
         logger.info(f"Pari Rejeté (EV {ev*100:.1f}% < requis {min_ev*100:.0f}%) : {pick['Joueur']} @ {cote:.2f} (Proba: {pick['Proba']:.3f})")

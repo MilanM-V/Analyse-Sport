@@ -143,63 +143,45 @@ def update_pending_picks():
         logger.info(f"[Auto-ROI] [OK] {resolved_count} pick(s) résolu(s) avec succès via API NHL !")
     return resolved_count
 
-async def log_closing_lines() -> None:
-    """
-    (V18.2) Scrape the current odds for today's unresolved picks and update their closing_cote.
-    Can be run as a cron job 10 minutes before matches start to get the actual CLV.
-    """
-    import asyncio
-    from nhl.core.database import get_connection
-    from nhl.core.odds_scraper import fetch_multiple_odds
-    
-    logger.info("[CLV] Démarrage du tracking des cotes de clôture (Closing Lines)...")
+async def log_closing_lines_for_match(home: str, away: str, session_date: str) -> int:
+    """Snapshot de clôture (≈ T-5 min) pour les picks non résolus d'UN match.
 
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
+    Enregistre la cote d'exécution (Winamax) et la probabilité no-vig Pinnacle de
+    clôture : CLV = cote_prise / closing_cote - 1 et EV de clôture =
+    closing_p_novig * cote_prise - 1 (meilleur indicateur d'edge sur petit échantillon).
+
+    Args:
+        home: abréviation de l'équipe à domicile.
+        away: abréviation de l'équipe à l'extérieur.
+        session_date: date de session NHL des picks (YYYY-MM-DD).
+
+    Returns:
+        Nombre de picks mis à jour.
+    """
+    from nhl.core.database import get_connection
+    from shared.odds_api import fetch_nhl_odds
+
     conn = get_connection()
     c = conn.cursor()
-    
-    # Collect unsolved picks for today
-    players_to_check = set()
-    for table in ["picks", "picks_assists", "picks_points"]:
-        col = table.split('_')[-1] if '_' in table else "but"
-        # Check all non-resolved
-        c.execute(f"SELECT joueur FROM {table} WHERE date = ? AND ({col} IS NULL OR {col} = '')", (today_str,))
-        for row in c.fetchall():
-            players_to_check.add(row[0])
-            
-    if not players_to_check:
-        logger.info("[CLV] Aucun match en attente pour récupérer les Closing Lines.")
+    players: dict = {}
+    for table, col in (("picks", "but"), ("picks_assists", "assist")):
+        c.execute(f"SELECT joueur, equipe FROM {table} WHERE date = ? AND equipe IN (?, ?) "
+                  f"AND ({col} IS NULL OR {col} = '')", (session_date, home, away))
+        players.update({j: e for j, e in c.fetchall()})
+    if not players:
         conn.close()
-        return
-        
-    logger.info(f"[CLV] Vérification de {len(players_to_check)} joueurs...")
-    p_list = list(players_to_check)
-    odds_map = await fetch_multiple_odds(p_list)
-    
-    if not odds_map:
-        logger.warning("[CLV] Échec du scraping ou aucune cote trouvée.")
-        conn.close()
-        return
-        
-    # Update DB
+        return 0
+    odds = await fetch_nhl_odds(players)
     updates = 0
-    for player in odds_map:
-        data = odds_map[player]
-        g_cote = data.get("BUTS")
-        a_cote = data.get("ASSISTS")
-        p_cote = data.get("POINTS")
-        
-        if g_cote:
-            c.execute("UPDATE picks SET closing_cote = ? WHERE joueur = ? AND date = ? AND (but IS NULL OR but = '')", (g_cote, player, today_str))
-        if a_cote:
-            c.execute("UPDATE picks_assists SET closing_cote = ? WHERE joueur = ? AND date = ? AND (assist IS NULL OR assist = '')", (a_cote, player, today_str))
-        if p_cote:
-            c.execute("UPDATE picks_points SET closing_cote = ? WHERE joueur = ? AND date = ? AND (point IS NULL OR point = '')", (p_cote, player, today_str))
-            
-        updates += 1
-        
+    for player, data in odds.items():
+        for key, table, col in (("BUTS", "picks", "but"), ("ASSISTS", "picks_assists", "assist")):
+            d = data.get(key) or {}
+            if not d.get("price") and not d.get("p_novig"):
+                continue
+            c.execute(f"UPDATE {table} SET closing_cote = ?, closing_p_novig = ? WHERE joueur = ? AND date = ? "
+                      f"AND ({col} IS NULL OR {col} = '')", (d.get("price"), d.get("p_novig"), player, session_date))
+            updates += c.rowcount
     conn.commit()
     conn.close()
-    logger.info(f"[CLV] Terminé ! {updates} profils de cotes de clôture mis à jour dans la base.")
-
+    logger.info(f"[CLV] {home}-{away} : {updates} pick(s) avec cote de clôture.")
+    return updates

@@ -25,15 +25,17 @@ def load_ml_models() -> Dict[str, Any]:
     try:
         models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
         
-        path_but = os.path.join(models_dir, "ensemble_but.joblib")
+        path_but = os.path.join(models_dir, "ml_model_but.pkl")
         if os.path.exists(path_but):
-            models['but'] = joblib.load(path_but)
-            logger.info("Modèle ML Buteur (Ensemble Multi-Boosting) chargé.")
+            data = joblib.load(path_but)
+            models['but'] = data
+            logger.info(f"Modèle ML Buteur ({data.get('algo')}) chargé.")
             
-        path_ast = os.path.join(models_dir, "ensemble_ast.joblib")
+        path_ast = os.path.join(models_dir, "ml_model_ast.pkl")
         if os.path.exists(path_ast):
-            models['ast'] = joblib.load(path_ast)
-            logger.info("Modèle ML Passeur (Ensemble Multi-Boosting) chargé.")
+            data = joblib.load(path_ast)
+            models['ast'] = data
+            logger.info(f"Modèle ML Passeur ({data.get('algo')}) chargé.")
             
     except Exception as e:
         logger.error(f"Erreur chargement modèles ML : {e}")
@@ -123,7 +125,9 @@ def prepare_features_for_player(p_form: Dict[str, Any], v5_p: Dict[str, Any], ad
         'prior_sh_pct': prior_sh_pct,
         'opp_xga_60': opp_xga_60,
         'opp_hdca_60': opp_hdca_60,
-        'opp_goalie_gsax_60': opp_xga_60 - ga_g, # Correction du proxy GSAx
+        # Shrinkage bayésien GSAx vers 0.0 avec C=20 matchs (P3)
+        # N = matchs joués par l'équipe adverse (approximation via GP)
+        'opp_goalie_gsax_60': ( (opp_xga_60 - ga_g) * float(adv_stats.get('GP', 1)) ) / (float(adv_stats.get('GP', 1)) + 20.0) if adv_stats else 0.0,
         'team_xg_60': 2.8,
         'ixg_x_opp_xga': ixg_x_opp_xga,
         # === NOUVELLES FEATURES (P5) ===
@@ -148,24 +152,27 @@ def prepare_features_for_player(p_form: Dict[str, Any], v5_p: Dict[str, Any], ad
     }
     
     # Construire le vecteur exact dans l'ordre du modèle
-    return np.array([[feat_dict.get(f, 0.0) for f in features_list]])
+    vec = []
+    for f in features_list:
+        if f not in feat_dict:
+            raise ValueError(f"Feature '{f}' attendue par le modèle mais introuvable dans prepare_features_for_player.")
+        vec.append(feat_dict[f])
+    return np.array([vec])
 
 
 def get_adaptive_ev_threshold(cote: float, default_ev: float = 0.05) -> float:
-    """Calcule le seuil EV adaptatif selon la cote décimale (P9).
+    """Seuil EV adaptatif selon la cote décimale (source unique : [thresholds.ev_adaptive]).
 
-    - Cote basse (< 2.00) : Seuil 8% (contrer le vig élevé et marge de bruit)
-    - Cote médiane (2.00 - 3.50) : Seuil 5% (zone de compromis optimale)
-    - Cote haute (> 3.50) : Seuil 10% (contrer le long-shot bias et forte variance)
+    Conservé pour les anciens scripts ; le bot utilise nhl.core.betting.ev_threshold.
     """
     if not cote or cote <= 1.05:
         return default_ev
-    if cote < 2.00:
-        return 0.08
-    elif cote <= 3.50:
-        return 0.05
-    else:
-        return 0.10
+    ev = cfg.thresholds.ev_adaptive
+    if cote < ev.low_odds_cutoff:
+        return ev.low_odds_min_ev
+    if cote <= ev.mid_odds_cutoff:
+        return ev.mid_odds_min_ev
+    return ev.high_odds_min_ev
 
 
 def evaluate_player_markets(
@@ -208,15 +215,17 @@ def evaluate_player_markets(
     cat_but = None
     # On rejette explicitement 'D', 'LD', 'RD', mais aussi les positions vides (Cold Start) 
     # pour éviter que l'IA hallucine sur un défenseur avec un gros temps de glace.
-    is_forward = pos in ('C', 'LW', 'RW', 'F', 'W')
+    # Les CSV NHL API codent les ailiers 'L' / 'R' (et non 'LW' / 'RW')
+    is_forward = pos in ('C', 'L', 'R', 'LW', 'RW', 'F', 'W')
+    gp = int(v5_p.get('GP', 0)) if v5_p else 0
     
-    if (is_forward or (pos == '' and season_g >= 1.0)) and (is_top9 or season_g >= 0.20):
+    if gp >= 10 and (is_forward or (pos == '' and season_g >= 1.0)) and (is_top9 or season_g >= 0.20):
         if (is_home or is_playoff or not cfg.thresholds.buteurs.home_only):
             cat_but = "BUTEUR"
 
     # Passeurs : Joueurs avec temps de glace significatif
     cat_ast = None
-    if is_top9 or season_a >= 0.30:
+    if gp >= 10 and (is_top9 or season_a >= 0.30):
         if (is_home or is_playoff or not cfg.thresholds.passeurs.home_only):
             cat_ast = "PASSEUR"
 

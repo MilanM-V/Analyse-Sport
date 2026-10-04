@@ -79,6 +79,8 @@ def format_telegram_v18(
         msg = f"<b>\U0001f3c6 NHL PLAYOFF V18.3 \u2014 VAGUE {wave_label}</b>\n\n"
     else:
         msg = f"<b>\U0001f3d2 NHL V18.3 \u2014 VAGUE {wave_label}</b>\n\n"
+    if cfg.mode.paper_trading:
+        msg = "<b>\U0001f4c4 PAPER TRADING \u2014 ne pas miser (validation du mod\u00e8le en cours)</b>\n" + msg
 
     for mid in wave_ids:
         data = compos_en_memoire.get(mid)

@@ -1,254 +1,149 @@
 """
-scripts/train_models.py — Entraînement des modèles ML NHL (V2 — Calibré).
+scripts/train_models.py — Entraînement des modèles NHL de production (V3, parité train/serve).
 
-Corrections critiques par rapport à V1:
-- Split temporel strict (holdout de 30 jours jamais vu)
-- scale_pos_weight = ratio réel des classes (pas hardcodé à 4.0)
-- CalibratedClassifierCV (isotonique) pour des probabilités calibrées
-- Métriques affichées UNIQUEMENT sur le holdout (jamais sur le train)
-- Métadonnées de train sauvegardées dans le .pkl pour traçabilité
+- Données : tous les logs de match (MoneyPuck 2008-2024 + API NHL 2025+) passés par
+  `nhl.core.features.build_features` — la MÊME fonction que le bot en production.
+- Modèle : `TemporalCalibratedGBM` (pas de repondération, isotonique sur le bloc récent).
+- Buteur : attaquants uniquement. Passeur : tous les patineurs (`is_D` en feature).
+- Gate : le nouveau modèle n'écrase le modèle en place que s'il fait au moins aussi
+  bien en log-loss sur le même holdout temporel (derniers HOLDOUT_DAYS jours).
+  Un modèle en place d'une autre version de features est toujours remplacé.
+
+Usage:
+    python nhl/scripts/train_models.py                 # entraîne + gate + sauvegarde
+    python nhl/scripts/train_models.py --algos lgbm,xgb,cat
+    python nhl/scripts/train_models.py --force         # ignore le gate
 """
-import sqlite3
-import pandas as pd
-import numpy as np
-import sys
+import argparse
+import hashlib
 import os
-import joblib
-
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-
-from datetime import timedelta
-from sklearn.metrics import roc_auc_score, brier_score_loss
-
-# Import de notre architecture d'ensemble multi-boosting
 import sys
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, os.path.dirname(ROOT_DIR))
-from nhl.core.ensemble_model import NHLEnsembleClassifier
+from datetime import datetime
+from typing import Dict, Optional, Tuple
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(ROOT, "bot_database.db")
-MODELS_DIR = os.path.join(ROOT, "models")
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
-os.makedirs(MODELS_DIR, exist_ok=True)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-# Features de production standard (DB courante)
-FEATURES_BASE = [
-    'ixg_l10', 'hdcf_l10', 'sog_l10', 'atoi_l10',
-    'season_g', 'season_a', 'season_pts',
-    'ga_g', 'hdca_g', 'pp1', 'is_home',
-    'is_b2b', 'opp_is_b2b', 'consec_goals',
-    'ixg_x_hdcf', 'sog_x_atoi', 'ixg_x_ga',
-    'is_top6', 'linemate_synergy', 'team_scoring_env',
-    'goalie_weakness', 'opp_goalie_gsax_60'
-]
-FEATURES_BUT = [f for f in FEATURES_BASE if f != 'season_a']
-FEATURES_AST = FEATURES_BASE
+from nhl.core.ensemble_model import TemporalCalibratedGBM  # noqa: E402
+from nhl.core.monitoring import reference_profile  # noqa: E402
+from nhl.core.features import (FEATURES, FEATURES_VERSION, build_features,  # noqa: E402
+                               load_all_gamelogs, load_season_priors)
 
-# Features pour le super-dataset historique multi-saisons (avec priors vétérans et contexte équipe/gardien)
-FEATURES_HIST_BASE = [
-    'ixg_l10', 'hdcf_l10', 'sog_l10', 'atoi_l10', 'l10_g', 'l10_a',
-    'season_g', 'season_a', 'season_pts', 'ixg_x_hdcf', 'sog_x_atoi',
-    'is_top6', 'prior_g60', 'prior_a60', 'prior_sog60', 'prior_sh_pct',
-    'opp_xga_60', 'opp_hdca_60', 'opp_goalie_gsax_60', 'team_xg_60',
-    'ixg_x_opp_xga', 'is_home', 'goalie_weakness'
-]
-FEATURES_HIST_BUT = [f for f in FEATURES_HIST_BASE if f not in ['season_a', 'l10_a', 'prior_a60']]
-FEATURES_HIST_AST = [f for f in FEATURES_HIST_BASE if f not in ['prior_sh_pct']]
-
-# Holdout : les 30 derniers jours ne sont JAMAIS utilisés pour l'entraînement
-HOLDOUT_DAYS = 30
+MODELS_DIR = os.path.join(ROOT, "nhl", "models")
+LIVE_DIR = os.path.join(MODELS_DIR, "live")  # retrains du VPS : hors git (pas de conflit au pull)
+HOLDOUT_DAYS = 45
+MIN_SEASON = 2009
+DEFAULT_ALGOS = ("lgbm",)
 
 
-def load_clean_data(use_historical: bool = False):
-    """Charge les données depuis SQLite ou le super-dataset Parquet multi-saisons."""
-    if use_historical:
-        parquet_path = os.path.join(ROOT, "data", "historical_dataset.parquet")
-        if os.path.exists(parquet_path):
-            print(f"Chargement du super-dataset Parquet ({parquet_path})...")
-            df = pd.read_parquet(parquet_path)
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.sort_values('date').reset_index(drop=True)
-            df['target_but'] = df.get('target_but_0_5', 0)
-            df['target_ast'] = df.get('target_ast_0_5', 0)
-            df['goalie_sv_pct'] = pd.to_numeric(df.get('goalie_sv_pct', np.nan), errors='coerce')
-            df['goalie_weakness'] = np.where(df['goalie_sv_pct'] > 0, 1.0 - df['goalie_sv_pct'], 0.08)
-            return df, FEATURES_HIST_BUT, FEATURES_HIST_AST
+def load_training_frame() -> pd.DataFrame:
+    """Features de tous les matchs joués (cibles connues), triées chronologiquement."""
+    df = build_features(load_all_gamelogs(), load_season_priors())
+    df = df[(df["season"] >= MIN_SEASON) & df["target_but"].notna()]
+    return df.sort_values(["date", "gameId", "playerId"]).reset_index(drop=True)
 
 
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql(
-        "SELECT * FROM players WHERE but IS NOT NULL AND but != ''", conn
-    )
-    conn.close()
-
-    # Tri temporel OBLIGATOIRE pour TimeSeriesSplit
-    df['date'] = pd.to_datetime(df['date'])
-    df = df.sort_values('date').reset_index(drop=True)
-
-    # Préparation des features
-    df['ixg_l10'] = pd.to_numeric(df['ixg'], errors='coerce').fillna(0)
-    df['hdcf_l10'] = pd.to_numeric(df['hdcf'], errors='coerce').fillna(0)
-    df['sog_l10'] = pd.to_numeric(df['sog'], errors='coerce').fillna(0)
-    df['atoi_l10'] = pd.to_numeric(df['atoi'], errors='coerce').fillna(0)
-
-    df['season_g'] = pd.to_numeric(df['season_g'], errors='coerce').fillna(0)
-    df['season_a'] = pd.to_numeric(df['season_a'], errors='coerce').fillna(0)
-    df['season_pts'] = pd.to_numeric(
-        df['season_pts'], errors='coerce'
-    ).fillna(0)
-
-    df['ga_g'] = pd.to_numeric(df['ga_g'], errors='coerce').fillna(0)
-    df['hdca_g'] = pd.to_numeric(df['hdca_g'], errors='coerce').fillna(0)
-
-    df['pp1'] = pd.to_numeric(
-        df['pp1'], errors='coerce'
-    ).fillna(0).astype(int)
-    df['is_home'] = pd.to_numeric(
-        df['is_home'], errors='coerce'
-    ).fillna(0).astype(int)
-    df['is_b2b'] = pd.to_numeric(
-        df['b2b'], errors='coerce'
-    ).fillna(0).astype(int)
-    df['opp_is_b2b'] = pd.to_numeric(
-        df.get('opp_b2b', 0), errors='coerce'
-    ).fillna(0).astype(int)
-    df['consec_goals'] = pd.to_numeric(
-        df.get('consec_goals', 0), errors='coerce'
-    ).fillna(0)
-
-    # Feature Engineering (Interactions & Synergies P10)
-    df['ixg_x_hdcf'] = df['ixg_l10'] * df['hdcf_l10']
-    df['sog_x_atoi'] = df['sog_l10'] * df['atoi_l10']
-    df['ixg_x_ga'] = df['ixg_l10'] * df['ga_g']
-
-    df['is_top6'] = ((df['atoi_l10'] >= 17.0) | (df['pp1'] == 1)).astype(int)
-    df['linemate_synergy'] = (df['season_g'] + df['season_a']) * df['pp1']
-    df['team_scoring_env'] = df['ga_g'] * df['hdca_g']
-
-    # Nouvelles features quantitatives (P5)
-    df['cote'] = pd.to_numeric(df.get('cote', np.nan), errors='coerce')
-    df['implied_prob'] = np.where((df['cote'] > 1.05) & (df['cote'].notna()), 1.0 / df['cote'], 0.0)
-    
-    df['goalie_sv_pct'] = pd.to_numeric(df.get('goalie_sv_pct', np.nan), errors='coerce')
-    df['goalie_weakness'] = np.where(df['goalie_sv_pct'] > 0, 1.0 - df['goalie_sv_pct'], 0.08)
-
-    # Targets binaires
-    df['target_but'] = (
-        pd.to_numeric(df['but'], errors='coerce').fillna(0) > 0
-    ).astype(int)
-    df['target_ast'] = (
-        pd.to_numeric(df['assist'], errors='coerce').fillna(0) > 0
-    ).astype(int)
-
-    return df, FEATURES_BUT, FEATURES_AST
+def market_rows(df: pd.DataFrame, market: str) -> pd.DataFrame:
+    """Population d'entraînement d'un marché (buteur = attaquants seulement)."""
+    return df[df["position"] != "D"] if market == "but" else df
 
 
-def train_with_holdout(df, features, target_col, model_name):
-    """Entraîne un modèle avec holdout temporel strict + calibration isotonique.
+def _metrics(y: np.ndarray, p: np.ndarray) -> Dict[str, float]:
+    p = np.clip(p, 1e-6, 1 - 1e-6)
+    return {"logloss": float(log_loss(y, p)), "brier": float(brier_score_loss(y, p)),
+            "auc": float(roc_auc_score(y, p)), "mean_p": float(p.mean()), "rate": float(y.mean())}
 
-    Args:
-        df: DataFrame trié chronologiquement.
-        features: Liste des features à utiliser.
-        target_col: Colonne cible ('target_but' ou 'target_ast').
-        model_name: Nom pour la sauvegarde ('but' ou 'ast').
+
+def _current_model_logloss(market: str, hold: pd.DataFrame) -> Optional[float]:
+    """Log-loss du modèle en place (live/ prioritaire) sur le holdout, ou None s'il est incompatible."""
+    from nhl.core.inference import model_path
+    path = model_path(market)
+    if not path:
+        return None
+    bundle = joblib.load(path)
+    if bundle.get("features_version") != FEATURES_VERSION:
+        print(f"  [{market}] modèle en place d'une autre version de features "
+              f"({bundle.get('features_version')}) → remplacé.")
+        return None
+    p = bundle["model"].predict_proba(hold[bundle["features"]].to_numpy(float))[:, 1]
+    return _metrics(hold[f"target_{market}"].to_numpy(), p)["logloss"]
+
+
+def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: bool, out_dir: str = MODELS_DIR) -> bool:
+    """Entraîne, applique le gate, puis ré-entraîne sur tout et sauvegarde.
+
+    Returns:
+        True si le modèle a été sauvegardé.
     """
-    print(f"\n{'=' * 60}")
-    print(f"ENTRAINEMENT : {model_name.upper()} "
-          f"(Holdout {HOLDOUT_DAYS}j + Calibration Isotonique)")
-    print(f"{'=' * 60}")
+    feats = FEATURES[market]
+    target = f"target_{market}"
+    d = market_rows(df, market)
+    cutoff = d["date"].max() - pd.Timedelta(days=HOLDOUT_DAYS)
+    tr, hold = d[d["date"] <= cutoff], d[d["date"] > cutoff]
+    print(f"\n=== {market.upper()} — train {len(tr):,} lignes (≤ {cutoff.date()}), holdout {len(hold):,} ===")
 
-    # --- SPLIT TEMPOREL STRICT (Adaptatif si historique court) ---
-    total_days = max(1, (df['date'].max() - df['date'].min()).days)
-    effective_holdout = min(HOLDOUT_DAYS, max(5, int(total_days * 0.20)))
-    cutoff_date = df['date'].max() - timedelta(days=effective_holdout)
-    df_train = df[df['date'] <= cutoff_date].copy()
-    df_holdout = df[df['date'] > cutoff_date].copy()
+    m = TemporalCalibratedGBM(algos=algos).fit(tr[feats].to_numpy(float), tr[target].to_numpy())
+    met = _metrics(hold[target].to_numpy(), m.predict_proba(hold[feats].to_numpy(float))[:, 1])
+    print(f"  holdout : logloss={met['logloss']:.4f} brier={met['brier']:.4f} auc={met['auc']:.4f} "
+          f"p_moy={met['mean_p']:.3f} taux={met['rate']:.3f}")
 
-    print(f"  Période totale : {total_days} jours | Holdout effectif : {effective_holdout} jours")
-    print(f"  Train :   {len(df_train)} samples "
-          f"({df_train['date'].min().date()} -> "
-          f"{df_train['date'].max().date()})")
-    print(f"  Holdout:  {len(df_holdout)} samples "
-          f"({df_holdout['date'].min().date()} -> "
-          f"{df_holdout['date'].max().date()})")
+    cur = _current_model_logloss(market, hold)
+    if cur is not None:
+        print(f"  modèle en place : logloss={cur:.4f}")
+        if met["logloss"] > cur and not force:
+            print("  ⛔ GATE : nouveau modèle moins bon — modèle en place conservé.")
+            return False
 
-    X_train = df_train[features].values
-    y_train = df_train[target_col].values
-    X_holdout = df_holdout[features].values
-    y_holdout = df_holdout[target_col].values
+    final = TemporalCalibratedGBM(algos=algos).fit(d[feats].to_numpy(float), d[target].to_numpy())
+    data_hash = hashlib.sha1(pd.util.hash_pandas_object(d[["playerId", "gameId"]], index=False).values).hexdigest()[:12]
+    bundle = {
+        "model": final, "features": feats, "features_version": FEATURES_VERSION,
+        "algo": "temporal_calibrated_gbm[" + "+".join(algos) + "]",
+        "train_cutoff": str(d["date"].max().date()), "train_samples": int(len(d)),
+        "holdout_days": HOLDOUT_DAYS, "holdout_logloss": met["logloss"], "holdout_brier": met["brier"],
+        "holdout_auc": met["auc"], "holdout_rate": met["rate"], "data_hash": data_hash,
+        "trained_at": datetime.now().isoformat(timespec="seconds"),
+        "feature_profile": reference_profile(d[d["date"] > d["date"].max() - pd.Timedelta(days=365)], feats),
+    }
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"ml_model_{market}.pkl")
+    joblib.dump(bundle, path)
+    print(f"  ✅ sauvegardé : {path}")
+    return True
 
-    # --- MODÈLE DE BASE (scale_pos_weight = ratio réel) ---
-    n_neg = int(len(y_train) - sum(y_train))
-    n_pos = int(max(1, sum(y_train)))
-    scale_pos = n_neg / n_pos
-    print(f"  Classe positive: {n_pos}/{len(y_train)} "
-          f"({n_pos / len(y_train) * 100:.1f}%) — "
-          f"scale_pos_weight={scale_pos:.2f}")
 
-    # --- MODÈLE MULTI-BOOSTING ENSEMBLE (XGB + LGBM + CatBoost avec Optuna) ---
-    ensemble = NHLEnsembleClassifier(market=model_name, mode="ensemble", n_splits=3, random_state=42)
-    ensemble.fit(X_train, y_train)
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--algos", default=",".join(DEFAULT_ALGOS))
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--live", action="store_true", help="écrit dans nhl/models/live/ (retrain automatique du VPS)")
+    a = ap.parse_args()
+    algos = tuple(x.strip() for x in a.algos.split(",") if x.strip())
+    df = load_training_frame()
+    print(f"{len(df):,} matchs-joueurs ({df['date'].min().date()} → {df['date'].max().date()}), "
+          f"features {FEATURES_VERSION}, algos {algos}")
+    saved = [train_market(df, market, algos, a.force, LIVE_DIR if a.live else MODELS_DIR) for market in ("but", "ast")]
+    if any(saved) and not a.live:
+        refresh_simulator()
 
-    print(f"  Modèle Champion identifié : {ensemble.best_model_name_}")
-    if ensemble.weights_ is not None:
-        poids_str = ", ".join([f"{k}: {ensemble.weights_[i]:.2f}" for i, k in enumerate(ensemble.models_.keys())])
-        print(f"  Poids Blending optimaux : {poids_str}")
 
-    # --- MÉTRIQUES SUR LE HOLDOUT (JAMAIS VU) ---
-    holdout_auc = None
-    holdout_brier = None
-
-    probas_holdout = ensemble.predict_proba(X_holdout)[:, 1]
-
-    if len(np.unique(y_holdout)) > 1 and len(y_holdout) >= 10:
-        holdout_auc = float(roc_auc_score(y_holdout, probas_holdout))
-        holdout_brier = float(brier_score_loss(y_holdout, probas_holdout))
-
-        mean_proba = float(probas_holdout.mean())
-        real_rate = float(y_holdout.mean())
-
-        print(f"\n  --- HOLDOUT (données JAMAIS vues) ---")
-        print(f"  AUC:                  {holdout_auc:.4f}")
-        print(f"  Brier Score:          {holdout_brier:.4f}")
-        print(f"  Proba moy. prédite:   {mean_proba:.4f}")
-        print(f"  Taux réel:            {real_rate:.4f}")
-        print(f"  Écart calibration:    {abs(mean_proba - real_rate):.4f}")
-
-        if holdout_auc < 0.52:
-            print(f"  ⚠️ ATTENTION : AUC < 0.52 — "
-                  f"le modèle n'a presque pas de pouvoir prédictif OOS.")
-    else:
-        print(f"\n  ⚠️ Holdout trop petit ({len(y_holdout)} samples) "
-              f"pour des métriques fiables.")
-
-    # --- SAUVEGARDE ---
-    path = os.path.join(MODELS_DIR, f'ml_model_{model_name}.pkl')
-    joblib.dump({
-        'model': ensemble,
-        'features': features,
-        'algo': 'multi_boosting_ensemble',
-        'best_single_model': ensemble.best_model_name_,
-        'weights': ensemble.weights_,
-        'train_cutoff': str(cutoff_date.date()),
-        'train_samples': len(df_train),
-        'holdout_samples': len(df_holdout),
-        'holdout_auc': holdout_auc,
-        'holdout_brier': holdout_brier,
-        'scale_pos_weight': scale_pos,
-    }, path)
-    print(f"\n  ✅ Modèle d'Ensemble calibré sauvegardé : {path}")
+def refresh_simulator() -> None:
+    """Nouveaux modèles de prod = nouvelle version : régénère simulateur.html."""
+    try:
+        from nhl.scripts.export_simulator_data import export
+        export()
+    except FileNotFoundError as e:
+        print(f"  ⚠️ simulateur NON régénéré (prédictions walk-forward absentes : {e}). "
+              "Lancer simulate_roi.py --phase p1b_ens puis export_simulator_data.py.")
 
 
 if __name__ == "__main__":
-    use_hist = "--historical" in sys.argv
-    print(f"Chargement des données ({'HISTORIQUE MULTI-SAISONS' if use_hist else 'DB COURANTE'})...")
-    df, feat_but, feat_ast = load_clean_data(use_historical=use_hist)
-    print(f"{len(df):,} échantillons chargés avec chronologie respectée.")
-
-    train_with_holdout(df, feat_but, 'target_but', 'but')
-    train_with_holdout(df, feat_ast, 'target_ast', 'ast')
-    print("\nLes pointeurs sont volontairement ignorés "
-          "(ROI systématiquement négatif).")
+    main()

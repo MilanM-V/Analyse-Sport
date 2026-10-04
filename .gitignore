@@ -45,3 +45,16 @@ artifacts/
 .github/
 comparaison/
 analyse/
+
+# ─── Données dérivées (régénérées automatiquement) ─
+nhl/data/*_all.csv
+nhl/data/gamelogs/nhlapi_*.parquet
+nhl/data/odds/odds_wide.parquet
+nhl/data/odds/odds_long.parquet
+nhl/sent_matches.json
+nhl/data/features_p1.parquet
+nhl/models/live/
+nhl/reports/*.parquet
+nhl/reports/log_*.txt
+nhl/data/gamelogs/mp_gamelogs.parquet
+catboost_info/

@@ -8,10 +8,14 @@ from functools import wraps
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Application, CallbackQueryHandler
 import asyncio
+import datetime as dt
+from zoneinfo import ZoneInfo
 
 # Re-export depuis shared.utils pour compatibilité ascendante
 # (updater.py fait `from nhl.core.services import safe_get`)
 from shared.utils import retry_request, safe_get, safe_post  # noqa: F401
+
+PARIS_TZ = ZoneInfo("Europe/Paris")
 
 logger = logging.getLogger("NHL.Services")
 
@@ -307,34 +311,94 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     app.add_handler(CommandHandler("withdraw", withdraw_cmd))
 
     async def job_scan_cycle(context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Periodic background job for scanning."""
+        """Fallback background job for scanning."""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, nhl_bot.run_scan_cycle)
+
+    async def job_clv_snapshot(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Snapshot des cotes de clôture (Winamax + Pinnacle no-vig) à T-5 d'un match."""
+        from nhl.core.updater import log_closing_lines_for_match
+        d = context.job.data
+        try:
+            await log_closing_lines_for_match(d["home"], d["away"], d["session_date"])
+        except Exception as e:
+            logger.error(f"[CLV] Échec snapshot {d['home']}-{d['away']} : {e}", exc_info=True)
+
+    async def schedule_matches_dynamically(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Planifie, pour chaque match du jour, un scan à T-15 et un snapshot CLV à T-5."""
+        logger.info("Planification dynamique des matchs du jour...")
+        from nhl.core.scraper import get_scheduled_matches
+        from nhl.core import loaders
+
+        matches = get_scheduled_matches()
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        session_date = nhl_bot.get_nhl_session_date()
+        scheduled_scans = set()
+        for m in matches:
+            match_dt = nhl_bot.parse_match_datetime(m["time"])  # heure de Paris, naïve
+            if not match_dt:
+                continue
+            start_utc = match_dt.replace(tzinfo=PARIS_TZ).astimezone(dt.timezone.utc)
+            scan_utc = start_utc - dt.timedelta(minutes=15)
+            if scan_utc > now_utc and scan_utc.strftime("%Y%m%d%H%M") not in scheduled_scans:
+                context.job_queue.run_once(job_scan_cycle, when=scan_utc)
+                scheduled_scans.add(scan_utc.strftime("%Y%m%d%H%M"))
+                logger.info(f"Scan programmé à {match_dt - dt.timedelta(minutes=15):%H:%M} (T-15m) "
+                            f"pour {m['home']} vs {m['away']}")
+            clv_utc = start_utc - dt.timedelta(minutes=5)
+            if clv_utc > now_utc:
+                context.job_queue.run_once(job_clv_snapshot, when=clv_utc, data={
+                    "home": loaders.clean_team_name(m["home"]), "away": loaders.clean_team_name(m["away"]),
+                    "session_date": session_date})
 
     async def job_end_of_day(context: ContextTypes.DEFAULT_TYPE) -> None:
         """Daily background job for cleanup."""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, nhl_bot.end_of_day_cleanup)
 
-    async def job_log_closing_lines(context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Tracks the closing lines (CLV) before evening matches start."""
-        from nhl.core.updater import log_closing_lines
-        await log_closing_lines()
+    async def job_weekly_retrain(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Ré-entraînement hebdomadaire (gate intégré : n'écrase pas un meilleur modèle)."""
+        import subprocess
+        import sys
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        script = os.path.join(repo_root, "nhl", "scripts", "train_models.py")
+        logger.info("[Retrain] Ré-entraînement hebdomadaire des modèles...")
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(None, lambda: subprocess.run(
+            [sys.executable, script, "--live"], cwd=repo_root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace"))
+        tail = (res.stdout or "")[-1500:]
+        logger.info(f"[Retrain] code={res.returncode}\n{tail}")
+        if res.returncode == 0:
+            nhl_bot.engine.models = __import__("nhl.core.inference", fromlist=["load_models"]).load_models()
+        else:
+            nhl_bot.telegram.send_message(f"⚠️ <b>Retrain NHL en échec</b> (code {res.returncode})")
 
+    async def job_drift_check(context: ContextTypes.DEFAULT_TYPE) -> None:
+        """PSI des features servies (7 derniers jours) vs distribution d'entraînement."""
+        from nhl.core.monitoring import drift_report
+        loop = asyncio.get_running_loop()
+        msg = await loop.run_in_executor(None, drift_report)
+        if msg:
+            nhl_bot.telegram.send_message(msg)
 
+    # Planificateur : chaque jour à 13:00 UTC + une fois au démarrage
+    target_time_planner = dt.time(hour=13, minute=0, tzinfo=dt.timezone.utc)
+    app.job_queue.run_daily(schedule_matches_dynamically, time=target_time_planner)
+    app.job_queue.run_once(schedule_matches_dynamically, when=10)
 
-    app.job_queue.run_repeating(job_scan_cycle, interval=900, first=10)
+    # Filet de sécurité : scan toutes les 15 min (run_scan_cycle ignore lui-même
+    # les heures inactives). Couvre les compos publiées après T-15 et les échecs API.
+    app.job_queue.run_repeating(job_scan_cycle, interval=900, first=60)
 
-    import datetime as dt
     # EOD Cleanup at 5:00 UTC (morning)
-    target_time_eod = dt.time(hour=5, minute=0, tzinfo=dt.timezone.utc) 
+    target_time_eod = dt.time(hour=5, minute=0, tzinfo=dt.timezone.utc)
     app.job_queue.run_daily(job_end_of_day, time=target_time_eod)
-    
-    # CLV Tracking around midnight UTC (before most matches)
-    target_time_clv = dt.time(hour=23, minute=30, tzinfo=dt.timezone.utc)
-    app.job_queue.run_daily(job_log_closing_lines, time=target_time_clv)
 
-
+    # Contrôle de drift quotidien (6:00 UTC) et retrain hebdomadaire (lundi 6:30 UTC)
+    app.job_queue.run_daily(job_drift_check, time=dt.time(hour=6, minute=0, tzinfo=dt.timezone.utc))
+    app.job_queue.run_daily(job_weekly_retrain, time=dt.time(hour=6, minute=30, tzinfo=dt.timezone.utc),
+                            days=(0,))
 
     # Backup Telegram at 5:15 UTC
     async def job_run_backup(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -344,7 +408,7 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         import sys
         try:
             # Revenir à la racine du repo pour exécuter le script
-            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             backup_script = os.path.join(repo_root, "vps", "backup_manager.py")
             subprocess.run([sys.executable, backup_script], check=False)
         except Exception as e:

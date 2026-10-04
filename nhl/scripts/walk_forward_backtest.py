@@ -41,13 +41,13 @@ FEATURES_BUT = [
     'ixg_l10', 'sog_l10', 'atoi_l10', 'l10_g', 'l10_a', 
     'hdcf_l10', 'season_g', 'season_a', 'season_pts', 'sog_x_atoi', 'ixg_x_hdcf',
     'ga_g', 'hdca_g', 'pp1', 'is_home', 'is_b2b', 'opp_is_b2b', 'opp_goalie_gsax_60',
-    'consec_goals', 'linemate_synergy', 'team_scoring_env', 'ixg_x_ga'
+    'linemate_synergy', 'team_scoring_env', 'ixg_x_ga'
 ]
 FEATURES_AST = [
     'ixg_l10', 'sog_l10', 'atoi_l10', 'l10_g', 'l10_a', 
     'hdcf_l10', 'season_g', 'season_a', 'season_pts', 'sog_x_atoi', 'ixg_x_hdcf',
     'ga_g', 'hdca_g', 'pp1', 'is_home', 'is_b2b', 'opp_is_b2b', 'opp_goalie_gsax_60',
-    'consec_goals', 'linemate_synergy', 'team_scoring_env', 'ixg_x_ga'
+    'linemate_synergy', 'team_scoring_env', 'ixg_x_ga'
 ]
 FEATURES_PTS = FEATURES_AST.copy()
 
@@ -125,13 +125,7 @@ def load_all_data():
             
     print(f"  [COTES] Source unifiée picks(but_0_5): {len(odds['but_0_5'])} | ast_0_5: {len(odds['ast_0_5'])} | ast_1_5: {len(odds['ast_1_5'])} | pts_0_5: {len(odds['pts_0_5'])} | pts_1_5: {len(odds['pts_1_5'])}")
 
-    # 4. Injecter implied_prob dans df (pour les features du modèle)
-    for cat in ['but_0_5', 'ast_0_5', 'ast_1_5', 'pts_0_5', 'pts_1_5']:
-        df = df.merge(odds[cat][['date', 'joueur', 'cote']].rename(columns={'date': 'date_str', 'cote': f'cote_{cat}'}), on=['date_str', 'joueur'], how='left')
-        df[f'implied_prob_{cat}'] = np.where(df[f'cote_{cat}'].notna(), 1.0 / df[f'cote_{cat}'], 0.0)
-    
-    # Pour le modèle, la feature s'appelle toujours 'implied_prob'. 
-    df['implied_prob'] = df['implied_prob_but_0_5']
+    # 4. (Supprimé: Injection de implied_prob car cause de leakage et non-utilisé)
 
     if 'goalie_weakness' not in df.columns:
         df['goalie_weakness'] = 0.08

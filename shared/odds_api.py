@@ -9,7 +9,10 @@ import os
 import aiohttp
 import asyncio
 import logging
-from typing import Dict, List, Any
+import re
+import unicodedata
+from collections import Counter
+from typing import Any, Dict, Iterable, List, Optional
 from dotenv import load_dotenv
 
 from shared.telegram_hub import send_telegram
@@ -20,6 +23,29 @@ logger = logging.getLogger("OddsAPI")
 
 ODDS_API_KEY = os.getenv("api_odds")
 BASE_URL = "https://api.the-odds-api.com/v4/sports"
+
+def _norm(name: str) -> str:
+    """Nom normalisé : sans accents, ponctuation ni casse."""
+    s = "".join(c for c in unicodedata.normalize("NFD", str(name)) if unicodedata.category(c) != "Mn")
+    return " ".join(re.sub(r"[^a-z ]", " ", s.lower()).split())
+
+
+def match_player(api_name: str, candidates: Iterable[str]) -> Optional[str]:
+    """Rapproche un nom de l'API d'un joueur de la liste (exact, puis initiale + nom, unique).
+
+    Remplace l'ancien test par sous-chaîne qui confondait les homonymes partiels.
+    """
+    target = _norm(api_name)
+    cands = list(candidates)
+    exact = [c for c in cands if _norm(c) == target]
+    if len(exact) == 1:
+        return exact[0]
+    parts = target.split()
+    if len(parts) < 2:
+        return None
+    loose = [c for c in cands if _norm(c).split()[-1:] == parts[-1:] and _norm(c)[:1] == parts[0][:1]]
+    return loose[0] if len(loose) == 1 else None
+
 
 class OddsAPIClient:
     """Client centralisé pour The Odds API avec gestion de quota."""
@@ -47,7 +73,10 @@ class OddsAPIClient:
             pass
 
     @classmethod
-    async def fetch_odds(cls, sport: str, market: str, players_map: Dict[str, str], bookmaker: str = "winamax") -> Dict[str, Dict[str, float]]:
+    async def fetch_odds(cls, sport: str, market: str, players_map: Dict[str, str], bookmaker: str = "winamax",
+                         exec_only_winamax: bool = False,
+                         exec_books: Optional[Iterable[str]] = None,
+                         team_names: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Récupère les cotes pour une liste de joueurs sur un marché donné.
         
@@ -56,9 +85,16 @@ class OddsAPIClient:
             market: Le marché ciblé (ex: 'player_assists', 'pitcher_strikeouts').
             players_map: Dictionnaire {nom_joueur: equipe_du_joueur}.
             bookmaker: Le bookmaker principal ciblé (par défaut winamax).
+            exec_only_winamax: si True, seule une cote Winamax peut servir de cote
+                d'exécution (les autres books restent des références : Pinnacle no-vig).
+            exec_books: clés The Odds API des books où l'utilisateur peut parier
+                (ex. winamax_fr, betclic_fr). Prioritaire sur exec_only_winamax :
+                la cote d'exécution est la MEILLEURE parmi ces books.
+            team_names: {abréviation: nom complet} pour cibler les events
+                (les events The Odds API utilisent les noms complets).
             
         Returns:
-            Dict { "Nom_Joueur": { "MARCHE_OVER": cote } }
+            Dict { "Nom_Joueur": { "MARCHE": {price, bookmaker, is_winamax, pin_yes, pin_no, p_novig} } }
         """
         if not ODDS_API_KEY or ODDS_API_KEY == "votre_cle_api_ici":
             logger.warning(f"Clé The Odds API manquante. Impossible de récupérer les cotes {sport}.")
@@ -89,7 +125,7 @@ class OddsAPIClient:
 
             # Filtrer les events pour ne cibler que ceux où jouent nos joueurs
             # players_map contient {joueur: equipe}
-            target_teams = set(players_map.values())
+            target_teams = {(team_names or {}).get(t, t) for t in players_map.values()}
             target_events = []
             for ev in events_data:
                 home = ev.get('home_team', '')
@@ -114,11 +150,17 @@ class OddsAPIClient:
             
             # L'utilisateur parie sur Winamax, mais on autorise Pinnacle/DraftKings comme cotes de repli
             target_bookmakers = {
+                "winamax_fr": "Winamax",
                 "winamax": "Winamax",
+                "betclic_fr": "Betclic",
+                "unibet_fr": "Unibet",
+                "pmu_fr": "PMU",
                 "pinnacle": "Pinnacle",
                 "draftkings": "DraftKings",
                 "fanduel": "FanDuel"
             }
+            exec_set = set(exec_books) if exec_books else None
+            coverage = Counter()  # nb de cotes "Oui/Over" par book : diagnostic de couverture
             
             for event_id in target_events:
                 odds_url = f"{BASE_URL}/{sport}/events/{event_id}/odds"
@@ -148,58 +190,60 @@ class OddsAPIClient:
                         bookmakers = event_odds.get('bookmakers', [])
                         
                         # Parsing des bookmakers
+                        market_cap = market.upper().replace('PLAYER_', '').replace('PITCHER_', '')
+                        is_goal_market = (market == 'player_goal_scorer_anytime')
                         for bm in bookmakers:
                             bm_key = bm['key']
                             if bm_key not in target_bookmakers:
-                                continue # On ignore les bookmakers exotiques/étrangers
-                                
+                                continue  # On ignore les bookmakers exotiques/étrangers
                             bm_name = target_bookmakers[bm_key]
-                            
+                            is_wm = "winamax" in bm_key
                             for mkt in bm.get('markets', []):
-                                if mkt['key'] == market:
-                                    for outcome in mkt.get('outcomes', []):
-                                        player_api = outcome.get('description', outcome.get('name', ''))
-
-                                        price = outcome.get('price', 0)
-                                        
-                                        # Buteurs = "Yes", Passeurs = "Over" 0.5
-                                        name_low = outcome.get('name', '').lower()
-                                        is_goal_market = (market == 'player_goal_scorer_anytime')
-                                        is_over_05 = (name_low == 'over' and outcome.get('point', 0.5) == 0.5)
-                                        is_yes = (name_low == 'yes')
-                                        
-                                        if (is_goal_market and is_yes) or (not is_goal_market and is_over_05):
-                                            # Faire correspondre le joueur
-                                            for p_name in players_map.keys():
-                                                # Logique de matching flexible
-                                                if p_name.lower() in player_api.lower() or player_api.lower() in p_name.lower():
-                                                    if p_name not in results:
-                                                        results[p_name] = {}
-                                                    
-                                                    market_cap = market.upper().replace('PLAYER_', '').replace('PITCHER_', '')
-                                                    
-                                                    # Priorité absolue à Winamax (bookmaker principal de l'utilisateur)
-                                                    existing_data = results[p_name].get(market_cap)
-                                                    is_wm = (bm_key == "winamax")
-                                                    
-                                                    if is_wm:
-                                                        # Winamax est prioritaire absolu
-                                                        results[p_name][market_cap] = {
-                                                            "price": price,
-                                                            "bookmaker": "Winamax",
-                                                            "is_winamax": True
-                                                        }
-                                                    elif not existing_data or not existing_data.get('is_winamax'):
-                                                        # Fallback si Winamax n'a pas encore coté ce joueur
-                                                        if not existing_data or price > existing_data['price']:
-                                                            results[p_name][market_cap] = {
-                                                                "price": price,
-                                                                "bookmaker": bm_name,
-                                                                "is_winamax": False
-                                                            }
+                                if mkt['key'] != market:
+                                    continue
+                                for outcome in mkt.get('outcomes', []):
+                                    player_api = outcome.get('description', outcome.get('name', ''))
+                                    price = outcome.get('price', 0)
+                                    name_low = outcome.get('name', '').lower()
+                                    point_ok = is_goal_market or outcome.get('point', 0.5) == 0.5
+                                    side = ("yes" if name_low in ("yes", "over") else
+                                            "no" if name_low in ("no", "under") else None)
+                                    if side is None or not point_ok:
+                                        continue
+                                    p_name = match_player(player_api, players_map.keys())
+                                    if p_name is None:
+                                        continue
+                                    data = results.setdefault(p_name, {}).setdefault(market_cap, {})
+                                    # Référence "vraie" : Pinnacle, les deux côtés (pour le no-vig)
+                                    if bm_key == "pinnacle":
+                                        data["pin_" + side] = price
+                                    if side != "yes":
+                                        continue
+                                    coverage[bm_key] += 1
+                                    if exec_set is not None:
+                                        # Meilleure cote parmi les books où l'utilisateur peut parier
+                                        if bm_key in exec_set and price > data.get("price", 0):
+                                            data.update(price=price, bookmaker=bm_name, is_winamax=is_wm)
+                                        continue
+                                    # Cote d'exécution : Winamax prioritaire ; les autres books
+                                    # seulement si exec_only_winamax=False (MLB, ancien comportement)
+                                    if is_wm:
+                                        data.update(price=price, bookmaker="Winamax", is_winamax=True)
+                                    elif not exec_only_winamax and not data.get("is_winamax"):
+                                        if price > data.get("price", 0):
+                                            data.update(price=price, bookmaker=bm_name, is_winamax=False)
+                        # No-vig Pinnacle (multiplicatif) quand les deux côtés sont cotés
+                        for p_name, mk in results.items():
+                            d = mk.get(market_cap)
+                            if d and d.get("pin_yes") and d.get("pin_no") and "p_novig" not in d:
+                                iy, ino = 1.0 / d["pin_yes"], 1.0 / d["pin_no"]
+                                d["p_novig"] = iy / (iy + ino)
                 except Exception as e:
                     logger.error(f"Erreur connexion Odds API pour event {event_id}: {e}")
-                    
+
+            logger.info(f"[OddsAPI] Couverture {market} (cotes Oui/Over par book) : {dict(coverage) or 'aucune'}")
+            if exec_set is not None and not any(coverage.get(b) for b in exec_set):
+                logger.warning(f"[OddsAPI] Aucun book d'exécution ({sorted(exec_set)}) ne cote {market} : aucun pari possible.")
             return results
 
 async def fetch_nhl_odds(players_map: Dict[str, str]) -> Dict[str, Dict[str, float]]:
@@ -213,10 +257,16 @@ async def fetch_nhl_odds(players_map: Dict[str, str]) -> Dict[str, Dict[str, flo
     if not players_map:
         return {}
         
-    # Récupérer en parallèle les 3 marchés
+    from nhl.config.constants import TEAM_ABBR_TO_FULL
+    from nhl.config.settings import cfg
+    # Cote d'exécution = meilleure cote parmi les books FR où l'utilisateur a un compte
+    # ([betting] exec_books) ; Pinnacle sert de référence no-vig.
+    books = list(getattr(cfg.betting, "exec_books", ["winamax_fr"]))
     tasks = [
-        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_goal_scorer_anytime', players_map),
-        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_assists', players_map)
+        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_goal_scorer_anytime', players_map,
+                                 exec_books=books, team_names=TEAM_ABBR_TO_FULL),
+        OddsAPIClient.fetch_odds('icehockey_nhl', 'player_assists', players_map,
+                                 exec_books=books, team_names=TEAM_ABBR_TO_FULL)
     ]
     
     res_buteur, res_assist = await asyncio.gather(*tasks)
