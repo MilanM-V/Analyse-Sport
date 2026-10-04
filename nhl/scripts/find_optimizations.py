@@ -11,7 +11,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(ROOT)
 sys.path.append(os.path.dirname(ROOT))
-from shared.kelly import calculate_quarter_kelly
+from nhl.sim.legacy import calculate_quarter_kelly
 
 DB_PATH = os.path.join(ROOT, "bot_database.db")
 

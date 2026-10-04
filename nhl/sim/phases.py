@@ -15,7 +15,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 NHL_DIR = os.path.join(ROOT, "nhl")
-for p in (ROOT, NHL_DIR):  # shared/kelly.py utilise encore un import "config.settings"
+for p in (ROOT, NHL_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -56,10 +56,15 @@ def prod_eligible(df: pd.DataFrame, market: str) -> pd.Series:
     return pd.Series(res, index=df.index)
 
 
+def historic_eligible(df: pd.DataFrame, market: str) -> pd.Series:
+    """Éligibilité de prod telle qu'elle était avant l'audit du 2026-10-04 (passeurs à domicile
+    seulement), figée pour que baseline / p0 / p1* restent rejouables après les changements du TOML."""
+    return make_eligible(home_only_ast=True, fallback_prev_season=False)(df, market)
+
+
 def prod_select_and_stake(day: pd.DataFrame) -> pd.DataFrame:
     """Rejoue bot_logic.run_analysis_and_send : filtre EV, is_cote_valid, Kelly + exposition."""
-    from nhl.core.kelly import apply_kelly_to_picks, is_cote_valid
-    from nhl.core.market_filter import get_adaptive_ev_threshold
+    from nhl.sim.legacy import apply_kelly_to_picks, get_adaptive_ev_threshold, is_cote_valid
     exposure = 0.0
     rows = []
     for market, cote_min in (("but", cfg.thresholds.buteurs.cote_min), ("ast", cfg.thresholds.passeurs.cote_min)):
@@ -98,7 +103,7 @@ FEATURES_HIST_AST = [f for f in _HIST_BASE if f not in ['prior_sh_pct']]
 # ─────────────────────────────────────────────────────────────────────────────
 def baseline() -> PhaseSpec:
     """Pipeline existant : historical_dataset.parquet + NHLEnsembleClassifier + règles de prod."""
-    from nhl.core.ensemble_model import NHLEnsembleClassifier
+    from nhl.sim.legacy import NHLEnsembleClassifier
 
     def load() -> pd.DataFrame:
         df = pd.read_parquet(os.path.join(NHL_DIR, "data", "historical_dataset.parquet"))
@@ -119,7 +124,7 @@ def baseline() -> PhaseSpec:
         features={"but": FEATURES_HIST_BUT, "ast": FEATURES_HIST_AST},
         model_factory=lambda m: NHLEnsembleClassifier(market=m, mode="ensemble", n_splits=3, random_state=42),
         train_mask=lambda df, m: pd.Series(True, index=df.index),
-        eligible=prod_eligible,
+        eligible=historic_eligible,
         select_and_stake=prod_select_and_stake,
         notes=("Pipeline actuel : features MoneyPuck (xG inclus, défenseurs dans le train), ensemble "
                "XGB/LGBM/CatBoost (scale_pos_weight + sigmoid), filtres de prod (bug ailiers L/R inclus), "
@@ -165,14 +170,14 @@ def _p1_features() -> Dict[str, List[str]]:
 
 def p1a() -> PhaseSpec:
     """Features unifiées (parité prod), attaquants seuls pour le buteur, modèle inchangé."""
-    from nhl.core.ensemble_model import NHLEnsembleClassifier
+    from nhl.sim.legacy import NHLEnsembleClassifier
     return PhaseSpec(
         name="p1a",
         load=_p1_load,
         features=_p1_features(),
         model_factory=lambda m: NHLEnsembleClassifier(market=m, mode="ensemble", n_splits=3, random_state=42),
         train_mask=lambda df, m: (df["position"] != "D") if m == "but" else pd.Series(True, index=df.index),
-        eligible=prod_eligible,
+        eligible=historic_eligible,
         select_and_stake=prod_select_and_stake,
         notes=("P1a : features construites par nhl/core/features.py à partir de stats identiques MoneyPuck / "
                "API NHL (plus de xG en cours de saison ; xG seulement en prior de saison précédente), clé playerId, "

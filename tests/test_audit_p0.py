@@ -54,7 +54,8 @@ def _ev(i, home, away, start):
 
 
 def test_select_events_ignores_next_day_back_to_back():
-    from shared.odds_api import nhl_team_key, select_events
+    from nhl.core.odds import nhl_team_key
+    from shared.odds_api import select_events
     now = datetime(2026, 10, 10, 22, 0, tzinfo=timezone.utc)
     events = [
         _ev("tonight", "Boston Bruins", "Toronto Maple Leafs", now + timedelta(hours=1)),
@@ -69,7 +70,8 @@ def test_select_events_ignores_next_day_back_to_back():
 
 
 def test_select_events_handles_api_team_aliases():
-    from shared.odds_api import nhl_team_key, select_events
+    from nhl.core.odds import nhl_team_key
+    from shared.odds_api import select_events
     now = datetime(2026, 10, 10, 22, 0, tzinfo=timezone.utc)
     events = [_ev("a", "Montréal Canadiens", "St Louis Blues", now + timedelta(hours=1)),
               _ev("b", "Utah Mammoth", "Columbus Blue Jackets", now + timedelta(hours=2))]

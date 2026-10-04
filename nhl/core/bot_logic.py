@@ -549,7 +549,7 @@ class NhlBot(BaseSportBot):
         odds_map = {}
         if players_to_fetch:
             logger.info(f"Récupération des cotes (API) pour {len(players_to_fetch)} joueurs évalués...")
-            from shared.odds_api import fetch_nhl_odds
+            from nhl.core.odds import fetch_nhl_odds
             # asyncio.run() ne fonctionne pas dans un thread background — créer un loop dédié
             loop = asyncio.new_event_loop()
             try:
@@ -663,14 +663,6 @@ class NhlBot(BaseSportBot):
             loop.run_until_complete(log_extra_props(matches, session_date))
         except Exception as e:  # la journalisation ne doit jamais empêcher l'envoi des picks
             logger.error(f"[Contexte] Journalisation du marché impossible : {e}", exc_info=True)
-
-    # Plafonds exposés pour les tests (délègue au module kelly)
-    from nhl.core.kelly import CATEGORY_CAPS
-
-    def _calculate_quarter_kelly(self, proba: float, cote: float, categorie: str = "") -> str:
-        """Proxy vers core.kelly.calculate_quarter_kelly pour compatibilité."""
-        from nhl.core.kelly import calculate_quarter_kelly
-        return calculate_quarter_kelly(proba, cote, categorie)
 
     def end_of_day_cleanup(self) -> None:
         """Resolves pending picks and cleans up session data."""

@@ -9,7 +9,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from nhl.config.settings import cfg
 from nhl.core.market_filter import evaluate_player_markets
-from nhl.core.kelly import calculate_quarter_kelly, CATEGORY_CAPS
+from nhl.sim.legacy import calculate_quarter_kelly, CATEGORY_CAPS  # dashboard hérité (ancienne stratégie)
 
 # Compatibilité r/w TOML
 try:

@@ -1205,3 +1205,101 @@ ROI par tranche de cote (exec) :
 | but | (4.5, 6.0] | 3 | 1.5 | +3.5 | +235.3% |
 | but | (6.0, 10.0] | 4 | 2.0 | -2.0 | -100.0% |
 | but | (10.0, 100.0] | 1 | 1.5 | +16.8 | +1122.0% |
+
+## Phase `q_p3` — 2026-10-04 15:38 (retrain quarterly, 0 min)
+
+[après P3 : stratégie lue dans settings.toml [betting] (non-régression)] prédictions `p1b_ens`, prix PROD (passes = Pinnacle × pin_haircut), marchés ('but', 'ast'), w={'but': 0.5, 'ast': 0.75}, EV ≥ 0.04, Kelly 0.1667, plafonds 5.0/30.0 U.
+
+Cote d'exécution : médiane soft books × 0,94. IC 95 % bootstrap par journée.
+
+| Marché | Période | Paris | Mise (U) | Profit (U) | **ROI** | IC 95 % | Edge marché (Pinnacle) | Couv. Pinnacle | LL modèle | LL Pinnacle | AUC modèle | AUC Pinnacle | ECE bande |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| but | val | 5 | 3.5 | +3.6 | **+102.8%** | [-17 ; +264] | -10.2% | +80.0% | 0.5567 | 0.5568 | 0.6069 | 0.6039 | 0.0120 |
+| but | test | 11 | 9.0 | +18.0 | **+199.5%** | [-64 ; +532] | +31.3% | +27.3% | 0.5579 | 0.5595 | 0.5946 | 0.5874 | 0.0113 |
+| but | all | 16 | 12.5 | +21.6 | **+172.4%** | [-18 ; +437] | +7.6% | +43.8% | 0.5571 | 0.5577 | 0.6026 | 0.5985 | 0.0096 |
+| ast | val | 25 | 19.5 | +5.6 | **+28.5%** | [-32 ; +75] | -18.6% | +100.0% | 0.6277 | 0.6294 | 0.6159 | 0.6120 | 0.0131 |
+| ast | test | 1 | 1.0 | -1.0 | **-100.0%** | [-100 ; -100] | -17.9% | +100.0% | 0.6230 | 0.6228 | 0.6119 | 0.6118 | 0.0164 |
+| ast | all | 26 | 20.5 | +4.6 | **+22.2%** | [-35 ; +68] | -18.6% | +100.0% | 0.6261 | 0.6271 | 0.6145 | 0.6121 | 0.0072 |
+| total | val | 30 | 23.0 | +9.2 | **+39.8%** | [-13 ; +87] | -17.5% | +96.7% | — | — | — | — | — |
+| total | test | 12 | 10.0 | +17.0 | **+169.5%** | [-66 ; +498] | +19.0% | +33.3% | — | — | — | — | — |
+| total | all | 42 | 33.0 | +26.1 | **+79.1%** | [-5 ; +203] | -13.1% | +78.6% | — | — | — | — | — |
+
+Sensibilité au prix d'exécution (ROI total, toute la période) : exec = +79.1% (42 paris), soft_median = +18.8% (701 paris), soft_max = +9.5% (2834 paris), prod = +79.1% (42 paris)
+
+ROI par tranche de cote (exec) :
+
+| Marché | Cote | Paris | Mise | Profit | ROI |
+|---|---|---|---|---|---|
+| ast | (1.0, 2.0] | 3 | 5.0 | +1.0 | +19.9% |
+| ast | (2.0, 2.5] | 13 | 10.0 | +2.1 | +21.1% |
+| ast | (2.5, 3.5] | 10 | 5.5 | +1.5 | +26.4% |
+| but | (1.0, 2.0] | 1 | 1.5 | -1.5 | -100.0% |
+| but | (2.0, 2.5] | 4 | 3.5 | +1.7 | +49.7% |
+| but | (2.5, 3.5] | 2 | 1.5 | +0.2 | +12.8% |
+| but | (3.5, 4.5] | 1 | 1.0 | +2.8 | +276.0% |
+| but | (4.5, 6.0] | 3 | 1.5 | +3.5 | +235.3% |
+| but | (6.0, 10.0] | 4 | 2.0 | -2.0 | -100.0% |
+| but | (10.0, 100.0] | 1 | 1.5 | +16.8 | +1122.0% |
+
+## Phase `baseline` — 2026-10-04 15:46 (retrain quarterly, 8 min)
+
+Pipeline actuel : features MoneyPuck (xG inclus, défenseurs dans le train), ensemble XGB/LGBM/CatBoost (scale_pos_weight + sigmoid), filtres de prod (bug ailiers L/R inclus), cote_min 4,5 / 2,5, EV adaptatif, Kelly 1/8 plancher 0,5 U, exposition 15 U/jour. ⚠️ Optimiste vs la prod réelle : le backtest voit le xG MoneyPuck que la prod n'a pas.
+
+Cote d'exécution : médiane soft books × 0,94. IC 95 % bootstrap par journée.
+
+| Marché | Période | Paris | Mise (U) | Profit (U) | **ROI** | IC 95 % | Edge marché (Pinnacle) | Couv. Pinnacle | LL modèle | LL Pinnacle | AUC modèle | AUC Pinnacle | ECE bande |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| but | val | 25 | 13.0 | -7.2 | **-55.5%** | [-100 ; +17] | -1.4% | +24.0% | 0.5601 | 0.5574 | 0.5958 | 0.6039 | 0.0121 |
+| but | test | 85 | 46.5 | +23.4 | **+50.4%** | [-21 ; +141] | -5.1% | +44.7% | 0.5622 | 0.5594 | 0.5765 | 0.5880 | 0.0157 |
+| but | all | 110 | 59.5 | +16.2 | **+27.3%** | [-29 ; +100] | -4.6% | +40.0% | 0.5608 | 0.5580 | 0.5895 | 0.5987 | 0.0111 |
+| ast | val | 234 | 135.0 | -31.1 | **-23.1%** | [-42 ; -2] | -12.6% | +95.7% | 0.6313 | 0.6300 | 0.6082 | 0.6120 | 0.0116 |
+| ast | test | 246 | 162.0 | -18.9 | **-11.7%** | [-32 ; +8] | -14.1% | +95.5% | 0.6262 | 0.6234 | 0.6031 | 0.6117 | 0.0169 |
+| ast | all | 480 | 297.0 | -50.1 | **-16.9%** | [-31 ; -3] | -13.4% | +95.6% | 0.6295 | 0.6277 | 0.6065 | 0.6121 | 0.0122 |
+| total | val | 259 | 148.0 | -38.4 | **-25.9%** | [-44 ; -7] | -12.3% | +88.8% | — | — | — | — | — |
+| total | test | 331 | 208.5 | +4.5 | **+2.2%** | [-21 ; +29] | -12.9% | +82.5% | — | — | — | — | — |
+| total | all | 590 | 356.5 | -33.8 | **-9.5%** | [-24 ; +9] | -12.6% | +85.3% | — | — | — | — | — |
+
+Sensibilité au prix d'exécution (ROI total, toute la période) : exec = -9.5% (590 paris), soft_median = -5.9% (1590 paris), soft_max = +5.1% (3276 paris), prod = -10.3% (404 paris)
+
+ROI par tranche de cote (exec) :
+
+| Marché | Cote | Paris | Mise | Profit | ROI |
+|---|---|---|---|---|---|
+| ast | (2.5, 3.5] | 422 | 266.5 | -36.3 | -13.6% |
+| ast | (3.5, 4.5] | 53 | 28.0 | -11.3 | -40.2% |
+| ast | (4.5, 6.0] | 4 | 2.0 | -2.0 | -100.0% |
+| ast | (6.0, 10.0] | 1 | 0.5 | -0.5 | -100.0% |
+| but | (4.5, 6.0] | 77 | 42.0 | -11.6 | -27.7% |
+| but | (6.0, 10.0] | 32 | 16.0 | +11.0 | +68.9% |
+| but | (10.0, 100.0] | 1 | 1.5 | +16.8 | +1122.0% |
+
+## Phase `baseline` — 2026-10-04 15:55 (retrain quarterly, 8 min)
+
+Pipeline actuel : features MoneyPuck (xG inclus, défenseurs dans le train), ensemble XGB/LGBM/CatBoost (scale_pos_weight + sigmoid), filtres de prod (bug ailiers L/R inclus), cote_min 4,5 / 2,5, EV adaptatif, Kelly 1/8 plancher 0,5 U, exposition 15 U/jour. ⚠️ Optimiste vs la prod réelle : le backtest voit le xG MoneyPuck que la prod n'a pas.
+
+Cote d'exécution : médiane soft books × 0,94. IC 95 % bootstrap par journée.
+
+| Marché | Période | Paris | Mise (U) | Profit (U) | **ROI** | IC 95 % | Edge marché (Pinnacle) | Couv. Pinnacle | LL modèle | LL Pinnacle | AUC modèle | AUC Pinnacle | ECE bande |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| but | val | 25 | 13.0 | -7.2 | **-55.5%** | [-100 ; +17] | -1.4% | +24.0% | 0.5601 | 0.5574 | 0.5958 | 0.6039 | 0.0121 |
+| but | test | 85 | 46.5 | +23.4 | **+50.4%** | [-21 ; +141] | -5.1% | +44.7% | 0.5622 | 0.5594 | 0.5765 | 0.5880 | 0.0157 |
+| but | all | 110 | 59.5 | +16.2 | **+27.3%** | [-29 ; +100] | -4.6% | +40.0% | 0.5608 | 0.5580 | 0.5895 | 0.5987 | 0.0111 |
+| ast | val | 84 | 48.5 | -3.1 | **-6.5%** | [-41 ; +27] | -13.3% | +94.0% | 0.6391 | 0.6361 | 0.6135 | 0.6176 | 0.0179 |
+| ast | test | 94 | 63.0 | -0.8 | **-1.3%** | [-34 ; +34] | -14.3% | +93.6% | 0.6333 | 0.6308 | 0.5940 | 0.6049 | 0.0204 |
+| ast | all | 178 | 111.5 | -4.0 | **-3.6%** | [-29 ; +22] | -13.8% | +93.8% | 0.6371 | 0.6342 | 0.6070 | 0.6134 | 0.0168 |
+| total | val | 109 | 61.5 | -10.3 | **-16.8%** | [-47 ; +15] | -12.5% | +78.0% | — | — | — | — | — |
+| total | test | 179 | 109.5 | +22.6 | **+20.6%** | [-16 ; +63] | -11.5% | +70.4% | — | — | — | — | — |
+| total | all | 288 | 171.0 | +12.3 | **+7.2%** | [-18 ; +37] | -11.9% | +73.3% | — | — | — | — | — |
+
+Sensibilité au prix d'exécution (ROI total, toute la période) : exec = +7.2% (288 paris), soft_median = -0.4% (872 paris), soft_max = +9.1% (2623 paris), prod = +9.8% (222 paris)
+
+ROI par tranche de cote (exec) :
+
+| Marché | Cote | Paris | Mise | Profit | ROI |
+|---|---|---|---|---|---|
+| ast | (2.5, 3.5] | 164 | 104.0 | +3.5 | +3.4% |
+| ast | (3.5, 4.5] | 13 | 7.0 | -7.0 | -100.0% |
+| ast | (4.5, 6.0] | 1 | 0.5 | -0.5 | -100.0% |
+| but | (4.5, 6.0] | 77 | 42.0 | -11.6 | -27.7% |
+| but | (6.0, 10.0] | 32 | 16.0 | +11.0 | +68.9% |
+| but | (10.0, 100.0] | 1 | 1.5 | +16.8 | +1122.0% |

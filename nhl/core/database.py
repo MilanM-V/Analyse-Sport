@@ -377,7 +377,7 @@ def get_roi_stats(table: str = "picks", target_col: str = "but", days: str = "al
             query += " AND date >= ?"
             params.append(cutoff)
         except ValueError:
-            pass
+            logger.warning(f"Période ROI invalide ({days!r}) : toutes les dates sont utilisées.")
 
     if game_mode in ("regular", "playoff"):
         query += " AND game_mode = ?"

@@ -85,7 +85,8 @@ async def log_match_context(games: Iterable[Tuple[str, str]], goalies: Dict[Tupl
     Returns:
         Nombre de matchs journalisés.
     """
-    from shared.odds_api import fetch_event_odds_raw, nhl_team_key
+    from nhl.core.odds import nhl_team_key
+    from shared.odds_api import fetch_event_odds_raw
     from shared.utils import paris_now
     games = list(games)
     rows = await fetch_event_odds_raw(SPORT, games, ("h2h", "totals"), regions="eu,us", team_key=nhl_team_key())
@@ -121,7 +122,8 @@ async def log_extra_props(games: Iterable[Tuple[str, str]], session_date: str) -
     """
     if not getattr(cfg.betting, "log_extra_markets", False):
         return 0
-    from shared.odds_api import fetch_event_odds_raw, nhl_team_key
+    from nhl.core.odds import nhl_team_key
+    from shared.odds_api import fetch_event_odds_raw
     from shared.utils import paris_now
     rows = await fetch_event_odds_raw(SPORT, list(games), EXTRA_PROP_MARKETS, regions="us", team_key=nhl_team_key())
     _ensure_tables()

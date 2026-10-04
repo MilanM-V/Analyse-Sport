@@ -91,36 +91,69 @@ def export_data():
     
     logger.info(f"Data exported successfully to {OUTPUT_JSON}.")
 
-def git_commit_and_push():
-    """Push data.json to GitHub."""
-    logger.info("Committing data.json to Git...")
-    try:
-        # Check if there are changes
-        status = subprocess.run(["git", "status", "--porcelain", "dashboard/data.json"], cwd=_REPO_ROOT, capture_output=True, text=True)
-        if not status.stdout.strip():
-            logger.info("No changes in data.json. Skipping push.")
-            return
+DASHBOARD_BRANCH = "dashboard-data"
 
-        subprocess.run(["git", "add", "dashboard/data.json"], cwd=_REPO_ROOT, check=True)
-        subprocess.run(["git", "commit", "-m", "chore: update dashboard data [skip ci]"], cwd=_REPO_ROOT, check=True)
-        
-        # Determine branch
-        branch_proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True)
-        branch = branch_proc.stdout.strip()
-        
-        # Determine remote name (default to origin, fallback to Analyse-Nhl if it exists)
-        remote = "origin"
-        remotes_proc = subprocess.run(["git", "remote"], cwd=_REPO_ROOT, capture_output=True, text=True)
-        if "Analyse-Nhl" in remotes_proc.stdout.split():
-            remote = "Analyse-Nhl"
-            
-        logger.info(f"Pushing to {remote} {branch}...")
-        subprocess.run(["git", "push", remote, branch], cwd=_REPO_ROOT, check=True)
-        logger.info("Successfully pushed to GitHub.")
+
+def _git(args: list, cwd: str) -> subprocess.CompletedProcess:
+    """Commande git qui lève CalledProcessError avec stderr en cas d'échec."""
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True)
+
+
+def _remote_url() -> str:
+    """URL du remote du dépôt de code (Analyse-Nhl prioritaire, sinon origin)."""
+    remotes = _git(["remote"], _REPO_ROOT).stdout.split()
+    remote = "Analyse-Nhl" if "Analyse-Nhl" in remotes else "origin"
+    return _git(["remote", "get-url", remote], _REPO_ROOT).stdout.strip()
+
+
+def git_commit_and_push(repo_dir: str = None, remote_url: str = None, branch: str = DASHBOARD_BRANCH) -> bool:
+    """Publie data.json sur une branche dédiée, via un clone SÉPARÉ du dépôt de code.
+
+    Avant (audit 2026-10-04) : le bot committait dans le dépôt que le watchdog réinitialise
+    (`git reset --hard`) ; un conflit pouvait bloquer le déploiement ou perdre l'export.
+
+    Args:
+        repo_dir: clone de publication (défaut : env DASHBOARD_REPO_DIR, sinon ../bet2-dashboard).
+        remote_url: dépôt distant (défaut : celui du dépôt de code).
+        branch: branche de publication.
+
+    Returns:
+        True si un commit a été poussé.
+    """
+    repo_dir = repo_dir or os.getenv("DASHBOARD_REPO_DIR") or os.path.join(os.path.dirname(_REPO_ROOT), "bet2-dashboard")
+    try:
+        remote_url = remote_url or _remote_url()
+        if not os.path.isdir(os.path.join(repo_dir, ".git")):
+            logger.info(f"Création du clone de publication {repo_dir} ({branch})...")
+            os.makedirs(repo_dir, exist_ok=True)
+            _git(["init", "-q"], repo_dir)
+            _git(["remote", "add", "origin", remote_url], repo_dir)
+            exists = _git(["ls-remote", "--heads", "origin", branch], repo_dir).stdout.strip()
+            if exists:
+                _git(["fetch", "-q", "origin", branch], repo_dir)
+                _git(["checkout", "-q", "-b", branch, f"origin/{branch}"], repo_dir)
+            else:
+                _git(["checkout", "-q", "--orphan", branch], repo_dir)
+        else:
+            _git(["fetch", "-q", "origin", branch], repo_dir)
+            _git(["reset", "-q", "--hard", f"origin/{branch}"], repo_dir)
+        with open(OUTPUT_JSON, encoding="utf-8") as src, open(os.path.join(repo_dir, "data.json"), "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        _git(["add", "data.json"], repo_dir)
+        if not _git(["status", "--porcelain"], repo_dir).stdout.strip():
+            logger.info("data.json inchangé : rien à publier.")
+            return False
+        _git(["-c", "user.name=BetEngine", "-c", "user.email=bot@betengine.local",
+              "commit", "-q", "-m", "chore: update dashboard data"], repo_dir)
+        _git(["push", "-q", "origin", f"HEAD:{branch}"], repo_dir)
+        logger.info(f"data.json publié sur {branch}.")
+        return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"Git command failed: {e.stderr if e.stderr else e}")
-    except Exception as e:
-        logger.error(f"Error during git push: {e}")
+        logger.error(f"Publication du dashboard échouée ({' '.join(e.cmd)}) : {e.stderr}")
+    except OSError as e:
+        logger.error(f"Publication du dashboard échouée : {e}")
+    return False
+
 
 if __name__ == "__main__":
     export_data()

@@ -2,7 +2,7 @@
 scripts/check_odds_coverage.py — Diagnostic : quels books cotent les props NHL dans The Odds API ?
 
 Question clé pour la prod : les books FR où l'on parie (settings.toml [betting] exec_books)
-cotent-ils les marchés buteur / passeur ? Sinon `fetch_nhl_odds` ne renvoie aucune cote
+cotent-ils les marchés buteur / passeur ? Sinon `nhl.core.odds.fetch_nhl_odds` ne renvoie aucune cote
 d'exécution et le bot ne peut parier sur rien.
 
 Coût : 1 crédit (liste des matchs) + ~4 crédits par match testé (1 par marché × région).

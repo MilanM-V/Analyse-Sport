@@ -446,7 +446,8 @@ def compute_last10_stats(all_teams: List[str], game_ids_cache: Dict[str, List[st
                                 try:
                                     m, s = map(int, bp.get('toi', '0:00').split(':'))
                                     toi_map[bpr] = {'toi': m*60+s, 'team': tabbr}
-                                except: pass
+                                except (ValueError, AttributeError):
+                                    logger.debug(f"TOI illisible pour le joueur {bpr} : {bp.get('toi')!r}")
 
             for pid_toi, toi_data in toi_map.items():
                 ps = player_stats[pid_toi]
@@ -531,7 +532,8 @@ def compute_last10_stats(all_teams: List[str], game_ids_cache: Dict[str, List[st
                         for p in d.get('playerByGameStats', {}).get(side, {}).get(group, []):
                             pid_box = p.get('playerId')
                             if pid_box and pid_box not in pid_to_team: pid_to_team[pid_box] = abbr
-            except: pass
+            except (OSError, ValueError, AttributeError, TypeError) as e:  # fichier de cache corrompu
+                logger.warning(f"Cache boxscore {f} illisible (rattachement joueur → équipe) : {e}")
 
     for pid, s in player_stats.items():
         if not s['team'] and pid in pid_to_team: s['team'] = pid_to_team[pid]
@@ -615,6 +617,6 @@ def update_all_stats_sync():
             warnings.simplefilter("ignore", DeprecationWarning)
             try:
                 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-            except Exception:
-                pass
+            except AttributeError as e:  # politique absente des versions récentes de Python
+                logger.debug(f"WindowsSelectorEventLoopPolicy indisponible : {e}")
     asyncio.run(main_async())

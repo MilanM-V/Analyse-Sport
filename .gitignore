@@ -42,7 +42,8 @@ memory/
 artifacts/
 
 # ─── GitHub & misc ────────────────────────────────
-.github/
+# .github/ est versionné (CI : tests à chaque push, audit 2026-10-04), sauf les consignes d'agent
+.github/copilot-instructions.md
 comparaison/
 analyse/
 

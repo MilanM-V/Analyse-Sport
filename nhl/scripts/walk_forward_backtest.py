@@ -31,8 +31,7 @@ from sklearn.metrics import roc_auc_score
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, os.path.dirname(ROOT_DIR))
-from nhl.core.ensemble_model import NHLEnsembleClassifier
-from nhl.core.market_filter import get_adaptive_ev_threshold
+from nhl.sim.legacy import NHLEnsembleClassifier, get_adaptive_ev_threshold
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(ROOT, "bot_database.db")

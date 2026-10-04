@@ -17,6 +17,9 @@ logger = logging.getLogger("NHL.LoggerCSV")
 portfolio = Portfolio()
 
 
+# Audit P3 (2026-10-04) : les colonnes héritées is_top6, linemate_synergy, team_scoring_env,
+# prior_* et opp_xga_60 ne sont plus écrites (features de l'ancien modèle, valeurs 0 trompeuses).
+# Le vecteur réellement servi au modèle est dans features_json.
 def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
     """Colonnes de traçabilité du pari (audit P3) : probas, EV, version et vecteur exact du modèle."""
     return {
@@ -76,12 +79,6 @@ def log_picks_to_db(
             "ga_g": adv.get("GA_G", 0), "hdca_g": adv.get("HDCA_G", 0),
             "opp_b2b": adv.get("B2B", False), "consec_goals": f.get("ConsecGoals", 0),
             "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
-            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
             **_trace(p),
         })
         _after_insert("picks", p, pick_id, today)
@@ -97,12 +94,6 @@ def log_picks_to_db(
             "atoi": f.get("ATOI", 0), "l10_a": f.get("L10_A_G", 0), "season_a": v5.get("A_GP", 0),
             "ga_g": adv.get("GA_G", 0), "opp_b2b": adv.get("B2B", False),
             "cote": p.get("Cote"), "mise": p.get("MiseNum"), "game_mode": cfg.api.mode,
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or p["PP1"]),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if p["PP1"] else 0.0,
-            "team_scoring_env": adv.get("GA_G", 0) * adv.get("HDCA_G", 0) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
             **_trace(p),
         })
         _after_insert("picks_assists", p, pick_id, today)
@@ -123,12 +114,6 @@ def log_picks_to_db(
             "ga_g": adv.get("GA_G", 0) if adv else 0, "hdca_g": adv.get("HDCA_G", 0) if adv else 0,
             "consec_goals": f.get("ConsecGoals", 0), "game_mode": cfg.api.mode,
             "cote": p.get("Cote"), "goalie_sv_pct": p.get("goalie_sv_pct"),
-            "is_top6": bool(f.get("ATOI", 0) >= 17.0 or "⭐" in f.get("PP1", "")),
-            "linemate_synergy": (v5.get("G_GP", 0) + v5.get("A_GP", 0)) if "⭐" in f.get("PP1", "") else 0.0,
-            "team_scoring_env": (adv.get("GA_G", 0) * adv.get("HDCA_G", 0)) if adv else 0.0,
-            "prior_g60": f.get("Prior_G60", 0), "prior_a60": f.get("Prior_A60", 0),
-            "prior_sog60": f.get("Prior_SOG60", 0), "prior_sh_pct": f.get("Prior_SH_pct", 0),
-            "opp_xga_60": adv.get("Opp_xGA_60", 0) if adv else 0.0,
             "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
         })
 

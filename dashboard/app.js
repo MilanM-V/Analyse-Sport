@@ -1,15 +1,31 @@
 let chartInstance = null;
 
+// Les données sont publiées par le bot sur la branche dédiée `dashboard-data` (le dépôt de
+// code n'est plus modifié par le bot). Repli : data.json à côté de la page (ancien format).
+const DATA_SOURCES = [
+    'https://raw.githubusercontent.com/MilanM-V/Analyse-Nhl/dashboard-data/data.json',
+    'data.json',
+];
+
+async function loadData() {
+    const t = new Date().getTime();  // pas de cache
+    for (const src of DATA_SOURCES) {
+        try {
+            const response = await fetch(`${src}?t=${t}`);
+            if (response.ok) return await response.json();
+        } catch (e) {
+            console.warn(`Source indisponible : ${src}`, e);
+        }
+    }
+    throw new Error("Data not found");
+}
+
 async function fetchData() {
     const refreshIcon = document.getElementById('refresh-icon');
     refreshIcon.classList.add('animate-spin');
     
     try {
-        // Prevent caching by appending timestamp
-        const response = await fetch(`data.json?t=${new Date().getTime()}`);
-        if (!response.ok) throw new Error("Data not found");
-        
-        const data = await response.json();
+        const data = await loadData();
         updateDashboard(data);
     } catch (error) {
         console.error("Error fetching data:", error);

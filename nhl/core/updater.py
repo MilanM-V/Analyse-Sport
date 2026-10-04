@@ -149,7 +149,7 @@ async def log_closing_lines_for_match(home: str, away: str, session_date: str) -
         Nombre de picks mis à jour.
     """
     from nhl.core.database import get_connection
-    from shared.odds_api import fetch_nhl_odds
+    from nhl.core.odds import fetch_nhl_odds
 
     conn = get_connection()
     c = conn.cursor()
