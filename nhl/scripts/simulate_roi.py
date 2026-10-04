@@ -52,7 +52,9 @@ RETRAIN = {
                 [(2023, 10), (2023, 11), (2023, 12), (2024, 1), (2024, 2), (2024, 3), (2024, 4),
                  (2024, 10), (2024, 11), (2024, 12), (2025, 1)]],
 }
-PRICE_VARIANTS = {"exec": None, "soft_median": "soft_median", "soft_max": "soft_max"}
+PRICE_VARIANTS = {"exec": None, "soft_median": "soft_median", "soft_max": "soft_max", "prod": "prod_price"}
+# Couverture live (check_odds_coverage.py, 2026-10-04) : les passes ne sont cotées que par Pinnacle.
+AST_PINNACLE_ONLY = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -115,16 +117,65 @@ def load_odds() -> pd.DataFrame:
     return o
 
 
+def add_prod_price(preds: pd.DataFrame) -> pd.DataFrame:
+    """Prix d'exécution tel que la PROD le calcule aujourd'hui (shared.odds_api.apply_proxy).
+
+    Médiane soft × exec_haircut, à défaut cote « Oui » Pinnacle × pin_haircut. Pour les
+    passes, aucun book soft ne cote en live : seul le repli Pinnacle s'applique.
+    Ajoute `pin_yes` depuis odds_wide.parquet si les prédictions ne l'ont pas.
+    """
+    from nhl.sim.version import PIN_HAIRCUT
+    out = preds.copy()
+    if "pin_yes" not in out:
+        o = pd.read_parquet(ODDS_WIDE, columns=["date", "playerId", "market", "pin_yes"])
+        o["date"] = pd.to_datetime(o["date"])
+        out = out.merge(o, on=["date", "playerId", "market"], how="left")
+    soft = out["soft_median"] * EXEC_HAIRCUT
+    pin = out["pin_yes"] * PIN_HAIRCUT
+    price = soft.where(soft.notna(), pin)
+    if AST_PINNACLE_ONLY:
+        price = price.where(out["market"] != "ast", pin)
+    out["prod_price"] = price
+    return out
+
+
 def bootstrap_roi(bets: pd.DataFrame, n: int = 2000, seed: int = 0) -> tuple:
     """IC 95 % du ROI par bootstrap sur les JOURNÉES (paris d'un même jour corrélés)."""
+    return bootstrap_ci(bets, n, seed)[:2]
+
+
+def bootstrap_ci(bets: pd.DataFrame, n: int = 2000, seed: int = 0) -> tuple:
+    """IC 95 % du ROI puis du gain net, par bootstrap sur les soirées.
+
+    Returns:
+        (roi_lo, roi_hi, profit_lo, profit_hi) ; NaN si aucun pari.
+    """
     if bets.empty:
-        return (np.nan, np.nan)
+        return (np.nan, np.nan, np.nan, np.nan)
     rng = np.random.default_rng(seed)
     daily = bets.groupby("date").agg(p=("profit", "sum"), s=("mise", "sum"))
     p, s = daily["p"].to_numpy(), daily["s"].to_numpy()
     idx = rng.integers(0, len(daily), size=(n, len(daily)))
-    rois = p[idx].sum(1) / np.maximum(s[idx].sum(1), 1e-9)
-    return (float(np.percentile(rois, 2.5)), float(np.percentile(rois, 97.5)))
+    profits = p[idx].sum(1)
+    rois = profits / np.maximum(s[idx].sum(1), 1e-9)
+    return (float(np.percentile(rois, 2.5)), float(np.percentile(rois, 97.5)),
+            float(np.percentile(profits, 2.5)), float(np.percentile(profits, 97.5)))
+
+
+def variance_metrics(bets: pd.DataFrame) -> Dict[str, float]:
+    """Variance du P&L : écart-type et pire soirée, max drawdown (U), ratio moyenne / écart-type.
+
+    Calculé sur les soirées avec au moins un pari, dans l'ordre chronologique.
+    """
+    if bets.empty:
+        return {"night_std": np.nan, "worst_night": np.nan, "max_dd": np.nan, "sharpe_night": np.nan, "n_nights": 0}
+    daily = bets.groupby("date")["profit"].sum().sort_index()
+    cum = daily.cumsum()
+    dd = (cum.cummax().clip(lower=0) - cum).max()
+    std = float(daily.std(ddof=1)) if len(daily) > 1 else np.nan
+    return {"night_std": std, "worst_night": float(daily.min()), "max_dd": float(dd),
+            "sharpe_night": float(daily.mean() / std) if std and std == std else np.nan,
+            "n_nights": int(len(daily))}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -205,8 +256,8 @@ def summarize(bets: pd.DataFrame, preds: pd.DataFrame) -> Dict[str, Dict]:
                 "hit_rate": float(b["won"].mean()) if len(b) else np.nan,
                 "avg_odds": float(b["cote"].mean()) if len(b) else np.nan,
             }
-            lo, hi = bootstrap_roi(b)
-            r["roi_ci_lo"], r["roi_ci_hi"] = lo, hi
+            r["roi_ci_lo"], r["roi_ci_hi"], r["profit_ci_lo"], r["profit_ci_hi"] = bootstrap_ci(b)
+            r.update(variance_metrics(b))
             pinn = b.dropna(subset=["p_novig"])
             r["mkt_edge"] = float((pinn["p_novig"] * pinn["cote"] - 1).mean()) if len(pinn) else np.nan
             r["mkt_edge_cov"] = float(len(pinn) / len(b)) if len(b) else np.nan
@@ -318,8 +369,11 @@ def run(spec: PhaseSpec, retrain: str = "quarterly") -> Dict:
     os.makedirs(REPORT_DIR, exist_ok=True)
     preds.drop(columns=[c for c in preds.columns if c not in (
         "date", "playerId", "gameId", "market", "p_model", "won", "eligible", "exec_price",
-        "soft_median", "soft_max", "p_novig", "position", "team", "is_home", "ATOI_L10", "G_GP", "A_GP", "std_gp",
+        "soft_median", "soft_max", "p_novig", "pin_yes", "position", "team", "is_home", "ATOI_L10", "G_GP", "A_GP", "std_gp",
         "pos_bot")], errors="ignore").to_parquet(preds_path, index=False)
+    preds = add_prod_price(preds)
+    if spec.extra.get("exec_is_prod"):
+        preds["exec_price"] = preds["prod_price"]  # la phase simule le prix réel de la prod
     results, buckets = {}, pd.DataFrame()
     for variant, col in PRICE_VARIANTS.items():
         bets = run_betting(spec, preds, col)

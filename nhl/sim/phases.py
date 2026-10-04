@@ -399,3 +399,88 @@ def x_monthly() -> PhaseSpec:
 
 
 PHASES["x_monthly"] = x_monthly
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Audit du 2026-10-04 : phases q_* (une par phase P0 → P3 du plan d'exécution)
+# Les paramètres de chaque phase sont FIGÉS ici, pour qu'elle reste rejouable
+# après les changements ultérieurs de settings.toml.
+# ─────────────────────────────────────────────────────────────────────────────
+Q_FROZEN_0410 = dict(  # settings.toml [betting] au 2026-10-04 (avant l'audit)
+    markets=("but", "ast"), blend_w={"but": 0.65, "ast": 0.80},
+    cote_min={"but": 1.5, "ast": 1.5}, cote_max={"but": 15.0, "ast": 6.0},
+    ev_low=0.04, ev_mid=0.04, ev_high=0.04, no_pinnacle_extra_ev=0.05, kelly_fraction=0.1667,
+    min_stake=0.5, max_stake={"but": 1.5, "ast": 2.0}, max_game_exposure=5.0, max_daily_exposure=30.0,
+)
+
+
+def make_eligible(home_only_ast: bool = False, fallback_prev_season: bool = False):
+    """Éligibilité de prod paramétrée.
+
+    Args:
+        home_only_ast: applique `[thresholds.passeurs] home_only` (prod au 2026-10-04 : True).
+        fallback_prev_season: reproduit le repli de `fetcher.fetch_all` : un joueur sans
+            match cette saison mais présent la saison précédente est vu avec GP ≥ 10
+            (ses G/GP, A/GP de saison ne sont pas reconstitués : seul le critère ATOI joue).
+    """
+    def eligible(df: pd.DataFrame, market: str) -> pd.Series:
+        d = df
+        if fallback_prev_season and "prev_toi_pg_h" in df:
+            d = df.copy()
+            fb = (d["std_gp"] == 0) & d["prev_toi_pg_h"].notna()
+            d.loc[fb, "std_gp"] = 10
+        prev = cfg.thresholds.passeurs.home_only
+        cfg.thresholds.passeurs.home_only = home_only_ast
+        try:
+            return prod_eligible(d, market)
+        finally:
+            cfg.thresholds.passeurs.home_only = prev
+    return eligible
+
+
+def _q_phase(name: str, label: str, params_kw: dict, eligible, exec_is_prod: bool,
+             src: str = "p1b_ens") -> PhaseSpec:
+    """Phase q_* : prédictions walk-forward de `src` + stratégie et éligibilité données."""
+    from nhl.core.betting import BetParams, select_bets
+    params = BetParams.from_config(**params_kw)
+    spec = p1a()
+    spec.name = name
+    spec.extra["reuse_preds"] = src
+    spec.extra["exec_is_prod"] = exec_is_prod
+    spec.eligible = eligible
+
+    def select_and_stake(day: pd.DataFrame) -> pd.DataFrame:
+        cands = [{"market": r.market, "p_model": float(r.p_model), "p_novig": r.p_novig,
+                  "cote": float(r.exec_price), "game_id": r.gameId, "won": r.won, "playerId": r.playerId}
+                 for r in day.itertuples(index=False)]
+        bets = select_bets(cands, 100.0, params)
+        return pd.DataFrame([{"date": day["date"].iloc[0], "market": b["market"], "playerId": b["playerId"],
+                              "p": b["p_final"], "cote": b["cote"], "mise": b["mise"], "won": b["won"],
+                              "p_novig": b["p_novig"]} for b in bets])
+
+    spec.select_and_stake = select_and_stake
+    spec.notes = (f"[{label}] prédictions `{src}`, prix {'PROD (passes = Pinnacle × pin_haircut)' if exec_is_prod else 'médiane soft × 0,94'}, "
+                  f"marchés {params.markets}, w={params.blend_w}, EV ≥ {params.ev_low}, Kelly {params.kelly_fraction:.4f}, "
+                  f"plafonds {params.max_game_exposure}/{params.max_daily_exposure} U.")
+    return spec
+
+
+def q_ref() -> PhaseSpec:
+    return _q_phase("q_ref", "référence : config du 2026-10-04 telle que simulée", Q_FROZEN_0410,
+                    make_eligible(False, False), exec_is_prod=False)
+
+
+def q_prod() -> PhaseSpec:
+    return _q_phase("q_prod", "prod réelle au 2026-10-04 : passeurs domicile seul, repli saison, prix prod",
+                    Q_FROZEN_0410, make_eligible(True, True), exec_is_prod=True)
+
+
+PHASES.update({"q_ref": q_ref, "q_prod": q_prod})
+
+
+def q_p0() -> PhaseSpec:
+    return _q_phase("q_p0", "après P0 : passeurs domicile+extérieur, GP saison depuis les logs, prix prod",
+                    Q_FROZEN_0410, make_eligible(False, False), exec_is_prod=True)
+
+
+PHASES["q_p0"] = q_p0

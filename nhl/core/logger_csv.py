@@ -25,6 +25,7 @@ def _trace(p: Dict[str, Any]) -> Dict[str, Any]:
         "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
         "cote_proxy": p.get("Cote") if p.get("PriceSource") else None,
         "cote_seuil": p.get("CoteSeuil"), "price_source": p.get("PriceSource"),
+        "player_id": p.get("PlayerId"),  # résolution fiable (void si absent du boxscore)
     }
 
 

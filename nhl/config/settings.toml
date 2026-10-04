@@ -20,7 +20,7 @@ cote_min = 4.50  # Sécurité : On cible le segment des longshots rentables (>4.
 # OMEGA Optimal — Passeurs (+22.1 U)
 season_a_min = 0.50
 l10_a_min = 0.60
-home_only = true
+home_only = false  # audit 2026-10-04 : aligné sur la simulation (is_home est une feature du modèle)
 atoi_min = 16.0
 opp_ga_min = 2.6
 cote_min = 2.50  # Sécurité : Évite les cotes trop basses à ROI négatif

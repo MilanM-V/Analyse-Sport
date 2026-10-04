@@ -1,147 +1,137 @@
-import requests
 import logging
 import os
 import sys
-from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
 
 # Ajout du dossier racine au sys.path pour permettre l'exécution standalone
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from  core.database import get_connection
+from nhl.core.database import get_connection
 from nhl.core.services import safe_get
 from shared.portfolio import Portfolio
-from shared.utils import normalize_name, match_player_name  # Source unique
+from shared.utils import match_player_name  # Source unique
 
 logger = logging.getLogger("NHL.Updater")
 portfolio = Portfolio()
 
-# Import centralisé depuis la source unique
-from nhl.config.constants import ALL_ABBRS
+FINAL_STATES = ("OFF", "FINAL", "FINAL_OT", "FINAL_SO")
+# (table, colonne résultat, stat du boxscore, marché du portefeuille)
+PICK_TABLES = (("picks", "but", "goals", "BUTEUR"),
+               ("picks_assists", "assist", "assists", "PASSEUR"),
+               ("picks_points", "point", "points", "POINTEUR"))
 
-def update_pending_picks():
+
+def fetch_final_boxscores(date_str: str) -> Dict[str, Dict[str, Any]]:
+    """Stats des joueurs des matchs TERMINÉS d'une date, par équipe.
+
+    Returns:
+        {abréviation: {"by_id": {playerId: stats}, "by_name": {nom: stats}}} ; une équipe
+        n'apparaît que si son match est terminé et que son boxscore a été lu.
     """
-    Scan la DB pour trouver les dates non-résolues (but IS NULL)
-    et interroge l'API NHL pour valider si but=1 ou but=0.
+    sched = safe_get(f"https://api-web.nhle.com/v1/schedule/{date_str}", timeout=10).json()
+    games = next((gw.get("games", []) for gw in sched.get("gameWeek", []) if gw["date"] == date_str), [])
+    out: Dict[str, Dict[str, Any]] = {}
+    for g in games:
+        if g.get("gameState") not in FINAL_STATES:
+            continue
+        try:
+            box = safe_get(f"https://api-web.nhle.com/v1/gamecenter/{g['id']}/boxscore", timeout=10).json()
+        except Exception as e:  # boxscore indisponible : l'équipe reste en attente, retentée demain
+            logger.warning(f"[Auto-ROI] Boxscore {g['id']} illisible ({e}) — résolution reportée.")
+            continue
+        for side in ("homeTeam", "awayTeam"):
+            team = g[side]["abbrev"]
+            pdata = box.get("playerByGameStats", {}).get(side, {})
+            entry = out.setdefault(team, {"by_id": {}, "by_name": {}})
+            for p in pdata.get("forwards", []) + pdata.get("defense", []):
+                stats = {k: p.get(k, 0) for k in ("goals", "assists", "points", "shots")}
+                entry["by_id"][int(p.get("playerId", 0))] = stats
+                entry["by_name"][p.get("name", {}).get("default", "")] = stats
+    return out
+
+
+def find_player_stats(team_box: Dict[str, Any], joueur: str, player_id: Optional[int]) -> Tuple[Optional[Dict], bool]:
+    """Stats d'un joueur dans le boxscore de son équipe.
+
+    Returns:
+        (stats ou None, sûr) : `sûr` = True si l'absence est certaine (recherche par playerId).
+        Sans playerId, un nom non trouvé peut venir d'une graphie différente.
+    """
+    if player_id:
+        return team_box["by_id"].get(int(player_id)), True
+    for api_name, stats in team_box["by_name"].items():
+        if match_player_name(joueur, api_name):
+            return stats, True
+    return None, False
+
+
+def update_pending_picks() -> int:
+    """Résout les picks en attente via les boxscores de l'API NHL.
+
+    - Joueur présent au boxscore : 1 si la stat du marché est > 0, sinon 0.
+    - Match terminé et joueur absent (scratch, blessure à l'échauffement) : pick `void`
+      (mise rendue au portefeuille, exclu du ROI). Sans playerId, le pick n'est annulé que
+      si aucun nom ne correspond, et un warning est loggé.
+
+    Returns:
+        Nombre de picks résolus (void compris).
     """
     conn = get_connection()
     c = conn.cursor()
-
-    c.execute("""
-        SELECT DISTINCT date FROM picks WHERE but IS NULL OR but = ''
-        UNION
-        SELECT DISTINCT date FROM picks_assists WHERE assist IS NULL OR assist = ''
-        UNION
-        SELECT DISTINCT date FROM picks_points WHERE point IS NULL OR point = ''
-    """)
-    dates_to_check = [r[0] for r in c.fetchall()]
-
-    if not dates_to_check:
+    dates = set()
+    for table, col, _, _ in PICK_TABLES:
+        c.execute(f"SELECT DISTINCT date FROM {table} WHERE ({col} IS NULL OR {col} = '') "
+                  f"AND (statut IS NULL OR statut != 'void')")
+        dates.update(r[0] for r in c.fetchall())
+    if not dates:
         logger.info("[Auto-ROI] Aucune donnée en attente de résolution.")
         conn.close()
         return 0
 
-    logger.info(f"[Auto-ROI] Validation des résultats pour {len(dates_to_check)} date(s)...")
-
-    resolved_count = 0
-
-    for date_str in dates_to_check:
+    logger.info(f"[Auto-ROI] Validation des résultats pour {len(dates)} date(s)...")
+    resolved = 0
+    for date_str in sorted(dates):
         try:
-            sched_resp = safe_get(f"https://api-web.nhle.com/v1/schedule/{date_str}", timeout=10)
-            sched = sched_resp.json()
-            games = []
-            for gw in sched.get("gameWeek", []):
-                if gw["date"] == date_str:
-                    games = gw.get("games", [])
-                    break
-
-            goals_map = {}
-            for g in games:
-                if g.get("gameState") not in ('OFF', 'FINAL', 'FINAL_OT', 'FINAL_SO'):
-                    continue
-
-                gid = g["id"]
-                try:
-                    box_resp = safe_get(f"https://api-web.nhle.com/v1/gamecenter/{gid}/boxscore", timeout=10)
-                    box = box_resp.json()
-                except:
-                    continue
-
-                for side in ["homeTeam", "awayTeam"]:
-                    team_abbrev = g[side]["abbrev"]
-                    players_data = box.get('playerByGameStats', {}).get(side, {})
-                    all_players = players_data.get('forwards', []) + players_data.get('defense', [])
-
-                    if team_abbrev not in goals_map:
-                        goals_map[team_abbrev] = {}
-
-                    for p in all_players:
-                        name = p.get('name', {}).get('default', '')
-                        goals_map[team_abbrev][name] = {
-                            'goals': p.get('goals', 0),
-                            'assists': p.get('assists', 0),
-                            'points': p.get('points', 0),
-                            'shots': p.get('shots', 0)
-                        }
-
-            if not goals_map:
-                logger.info(f"[Auto-ROI] Les matchs du {date_str} ne sont pas encore terminés ou indisponibles.")
-                continue
-
-            # 1. Update table 'picks' (BUTS)
-            c.execute("SELECT id, joueur, equipe, verdict FROM picks WHERE date = ? AND (but IS NULL OR but = '')", (date_str,))
-            for pick_id, joueur, equipe, verdict in c.fetchall():
-                if equipe in goals_map:
-                    for api_name, stats in goals_map[equipe].items():
-                        if match_player_name(joueur, api_name):
-                            val = 1 if stats['goals'] > 0 else 0
-                            c.execute("UPDATE picks SET but = ? WHERE id = ?", (val, pick_id))
-                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
-                            resolved_count += 1
-                            break
-
-            # 2. Update table 'picks_assists'
-            c.execute("SELECT id, joueur, equipe FROM picks_assists WHERE date = ? AND (assist IS NULL OR assist = '')", (date_str,))
-            for pick_id, joueur, equipe in c.fetchall():
-                if equipe in goals_map:
-                    for api_name, stats in goals_map[equipe].items():
-                        if match_player_name(joueur, api_name):
-                            val = 1 if stats['assists'] > 0 else 0
-                            c.execute("UPDATE picks_assists SET assist = ? WHERE id = ?", (val, pick_id))
-                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
-                            resolved_count += 1
-                            break
-
-            # 3. Update table 'picks_points'
-            c.execute("SELECT id, joueur, equipe FROM picks_points WHERE date = ? AND (point IS NULL OR point = '')", (date_str,))
-            for pick_id, joueur, equipe in c.fetchall():
-                if equipe in goals_map:
-                    for api_name, stats in goals_map[equipe].items():
-                        if match_player_name(joueur, api_name):
-                            val = 1 if stats['points'] > 0 else 0
-                            c.execute("UPDATE picks_points SET point = ? WHERE id = ?", (val, pick_id))
-                            portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1))
-                            resolved_count += 1
-                            break
-
-            # 4. Update unified 'players' table
-            c.execute("SELECT id, joueur, equipe FROM players WHERE date = ? AND (but IS NULL OR but = '')", (date_str,))
-            for p_id, joueur, equipe in c.fetchall():
-                if equipe in goals_map:
-                    for api_name, stats in goals_map[equipe].items():
-                        if match_player_name(joueur, api_name):
-                            c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?", 
-                                      (stats['goals'], stats['assists'], stats['points'], p_id))
-                            break
-
+            box = fetch_final_boxscores(date_str)
         except Exception as e:
             logger.error(f"[Auto-ROI] Erreur lors du fetch de la date {date_str} : {e}")
+            continue
+        if not box:
+            logger.info(f"[Auto-ROI] Les matchs du {date_str} ne sont pas encore terminés ou indisponibles.")
+            continue
+        for table, col, stat, market in PICK_TABLES:
+            c.execute(f"SELECT id, joueur, equipe, player_id FROM {table} WHERE date = ? "
+                      f"AND ({col} IS NULL OR {col} = '') AND (statut IS NULL OR statut != 'void')", (date_str,))
+            for pick_id, joueur, equipe, player_id in c.fetchall():
+                if equipe not in box:
+                    continue
+                stats, sure = find_player_stats(box[equipe], joueur, player_id)
+                if stats is None:
+                    if not sure:
+                        logger.warning(f"[Auto-ROI] {joueur} ({equipe}) introuvable par nom dans le boxscore "
+                                       f"du {date_str} : pick {table}#{pick_id} annulé (void).")
+                    c.execute(f"UPDATE {table} SET statut = 'void' WHERE id = ?", (pick_id,))
+                    portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=False, market=market, void=True)
+                else:
+                    val = 1 if stats[stat] > 0 else 0
+                    c.execute(f"UPDATE {table} SET {col} = ? WHERE id = ?", (val, pick_id))
+                    portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1), market=market)
+                resolved += 1
 
+        # Table unifiée des joueurs évalués (stats brutes, pas de void)
+        c.execute("SELECT id, joueur, equipe FROM players WHERE date = ? AND (but IS NULL OR but = '')", (date_str,))
+        for p_id, joueur, equipe in c.fetchall():
+            if equipe in box:
+                stats, _ = find_player_stats(box[equipe], joueur, None)
+                if stats is not None:
+                    c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?",
+                              (stats["goals"], stats["assists"], stats["points"], p_id))
     conn.commit()
     conn.close()
+    if resolved:
+        logger.info(f"[Auto-ROI] [OK] {resolved} pick(s) résolu(s) via API NHL.")
+    return resolved
 
-    if resolved_count > 0:
-        logger.info(f"[Auto-ROI] [OK] {resolved_count} pick(s) résolu(s) avec succès via API NHL !")
-    return resolved_count
 
 async def log_closing_lines_for_match(home: str, away: str, session_date: str) -> int:
     """Snapshot de clôture (≈ T-5 min) pour les picks non résolus d'UN match.
@@ -171,7 +161,7 @@ async def log_closing_lines_for_match(home: str, away: str, session_date: str) -
     if not players:
         conn.close()
         return 0
-    odds = await fetch_nhl_odds(players)
+    odds = await fetch_nhl_odds(players, games=[(home, away)])
     updates = 0
     for player, data in odds.items():
         for key, table, col in (("BUTS", "picks", "but"), ("ASSISTS", "picks_assists", "assist")):

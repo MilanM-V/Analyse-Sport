@@ -62,19 +62,47 @@ def _metrics(y: np.ndarray, p: np.ndarray) -> Dict[str, float]:
             "auc": float(roc_auc_score(y, p)), "mean_p": float(p.mean()), "rate": float(y.mean())}
 
 
-def _current_model_logloss(market: str, hold: pd.DataFrame) -> Optional[float]:
-    """Log-loss du modèle en place (live/ prioritaire) sur le holdout, ou None s'il est incompatible."""
+GATE_MIN_ROWS = 2000  # lignes postérieures au cutoff du modèle en place nécessaires pour comparer
+
+
+def _current_bundle(market: str) -> Optional[dict]:
+    """Modèle en place (live/ prioritaire), ou None s'il est absent ou d'une autre version de features."""
     from nhl.core.inference import model_path
     path = model_path(market)
     if not path:
         return None
     bundle = joblib.load(path)
     if bundle.get("features_version") != FEATURES_VERSION:
-        print(f"  [{market}] modèle en place d'une autre version de features "
+        print(f"  [gate] {market} : modèle en place d'une autre version de features "
               f"({bundle.get('features_version')}) → remplacé.")
         return None
-    p = bundle["model"].predict_proba(hold[bundle["features"]].to_numpy(float))[:, 1]
-    return _metrics(hold[f"target_{market}"].to_numpy(), p)["logloss"]
+    return bundle
+
+
+def gate_rows(hold: pd.DataFrame, current_cutoff: Optional[str]) -> pd.DataFrame:
+    """Lignes du holdout que le modèle en place n'a PAS vues à l'entraînement (date > son cutoff).
+
+    Comparer sur tout le holdout avantage le modèle en place, entraîné jusqu'à son cutoff
+    (holdout inclus) : il serait évalué en échantillon et ne serait jamais remplacé.
+    """
+    if not current_cutoff:
+        return hold.iloc[:0]
+    return hold[hold["date"] > pd.Timestamp(current_cutoff)]
+
+
+def gate_decision(new_ll: float, cur_ll: Optional[float], n_rows: int, force: bool) -> Tuple[bool, str]:
+    """Décision du gate.
+
+    Returns:
+        (remplacer, raison). Sans assez de lignes hors échantillon, le modèle en place est conservé.
+    """
+    if force:
+        return True, "forcé (--force)"
+    if cur_ll is None:
+        return False, f"non concluant : {n_rows} ligne(s) postérieure(s) au modèle en place (< {GATE_MIN_ROWS})"
+    if new_ll <= cur_ll:
+        return True, f"nouveau meilleur ({new_ll:.4f} ≤ {cur_ll:.4f}, {n_rows} lignes)"
+    return False, f"nouveau moins bon ({new_ll:.4f} > {cur_ll:.4f}, {n_rows} lignes)"
 
 
 def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: bool, out_dir: str = MODELS_DIR) -> bool:
@@ -95,11 +123,18 @@ def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: b
     print(f"  holdout : logloss={met['logloss']:.4f} brier={met['brier']:.4f} auc={met['auc']:.4f} "
           f"p_moy={met['mean_p']:.3f} taux={met['rate']:.3f}")
 
-    cur = _current_model_logloss(market, hold)
-    if cur is not None:
-        print(f"  modèle en place : logloss={cur:.4f}")
-        if met["logloss"] > cur and not force:
-            print("  ⛔ GATE : nouveau modèle moins bon — modèle en place conservé.")
+    bundle = _current_bundle(market)
+    if bundle is not None:
+        rows = gate_rows(hold, bundle.get("train_cutoff"))
+        y = rows[target].to_numpy()
+        cur_ll = new_ll = None
+        if len(rows) >= GATE_MIN_ROWS and len(np.unique(y)) > 1:
+            X = rows[feats].to_numpy(float)
+            new_ll = _metrics(y, m.predict_proba(X)[:, 1])["logloss"]
+            cur_ll = _metrics(y, bundle["model"].predict_proba(rows[bundle["features"]].to_numpy(float))[:, 1])["logloss"]
+        ok, why = gate_decision(new_ll if new_ll is not None else met["logloss"], cur_ll, len(rows), force)
+        print(f"  [gate] {market} : {'✅ remplacé' if ok else '⛔ conservé'} — {why}")
+        if not ok:
             return False
 
     final = TemporalCalibratedGBM(algos=algos).fit(d[feats].to_numpy(float), d[target].to_numpy())

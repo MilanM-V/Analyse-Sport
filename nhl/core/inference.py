@@ -24,6 +24,26 @@ logger = logging.getLogger("NHL.Inference")
 
 NHL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(NHL_DIR, "models")
+# Les features « carrière » (car_*, sh_pct_shrunk) cumulent depuis le début des logs : le
+# modèle a été entraîné avec un historique depuis 2008. Servir avec moins = train/serve skew.
+HISTORY_START_MAX = pd.Timestamp("2009-10-01")
+
+
+class InsufficientHistoryError(RuntimeError):
+    """Les logs chargés ne couvrent pas l'historique attendu par le modèle (mp_gamelogs absent ?)."""
+
+
+def check_history(logs: pd.DataFrame) -> None:
+    """Lève InsufficientHistoryError si les logs commencent après HISTORY_START_MAX.
+
+    Args:
+        logs: logs de match chargés (colonne gameDate).
+    """
+    first = pd.to_datetime(logs["gameDate"]).min() if len(logs) else pd.NaT
+    if pd.isna(first) or first > HISTORY_START_MAX:
+        raise InsufficientHistoryError(
+            f"Historique insuffisant : premiers logs au {first} (attendu ≤ {HISTORY_START_MAX.date()}). "
+            "nhl/data/gamelogs/mp_gamelogs.parquet est-il présent ? (python -m nhl.data.gamelog_moneypuck)")
 
 
 def norm_name(name: str) -> str:
@@ -63,6 +83,7 @@ class FeatureEngine:
         self.priors: Optional[Dict[str, pd.DataFrame]] = None
         self.models: Dict[str, Dict[str, Any]] = {}
         self._name_idx: Dict[str, List[Tuple[int, str, pd.Timestamp, str]]] = {}
+        self._season_gp: Dict[Tuple[int, int], Dict[int, int]] = {}
 
     # ── Chargement ──────────────────────────────────────────────────────────
     def refresh(self, collect: bool = True) -> None:
@@ -72,12 +93,33 @@ class FeatureEngine:
         if collect:
             from nhl.data.gamelog_nhlapi import ensure_recent_seasons
             ensure_recent_seasons()
-        self.logs = load_all_gamelogs()
+        logs = load_all_gamelogs()
+        check_history(logs)  # aucune inférence sur un historique tronqué
+        self.logs = logs
         self.priors = load_season_priors()
         self.models = load_models()
+        self._season_gp = {}
         self._build_name_index()
         logger.info(f"FeatureEngine prêt : {len(self.logs):,} lignes de logs, "
                     f"dernière date {self.logs['gameDate'].max().date()}.")
+
+    def season_games(self, name: str, team: str, today: Optional[str] = None) -> int:
+        """Matchs joués CETTE saison avant `today` (depuis les logs, sans repli sur la saison précédente).
+
+        Le CSV « Player Season Totals » complète les joueurs absents de la saison en cours avec
+        la saison précédente : un joueur sans match cette saison y apparaît avec GP ≥ 10, ce qui
+        contournait le garde-fou « pas de pari avant 10 matchs » validé en simulation.
+        """
+        from nhl.data.gamelog_nhlapi import current_season
+        hit = self.resolve(name, team)
+        if hit is None or self.logs is None:
+            return 0
+        day = pd.Timestamp(today or date.today().isoformat())
+        season = current_season(day.date())
+        if (season, day.value) not in self._season_gp:
+            cur = self.logs[(self.logs["season"] == season) & (self.logs["gameDate"] < day)]
+            self._season_gp = {(season, day.value): cur.groupby("playerId").size().to_dict()}
+        return int(self._season_gp[(season, day.value)].get(hit[0], 0))
 
     def _build_name_index(self) -> None:
         last = (self.logs.sort_values("gameDate")

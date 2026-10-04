@@ -12,7 +12,8 @@ import logging
 import re
 import unicodedata
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv
 
 from shared.telegram_hub import send_telegram
@@ -71,6 +72,50 @@ def match_player(api_name: str, candidates: Iterable[str]) -> Optional[str]:
     return loose[0] if len(loose) == 1 else None
 
 
+def select_events(events: List[Dict[str, Any]], target_teams: Iterable[str],
+                  games: Optional[Iterable[Tuple[str, str]]] = None,
+                  now: Optional[datetime] = None, window_hours: float = 16.0,
+                  team_key: Optional[Callable[[str], str]] = None) -> List[str]:
+    """Ids des events The Odds API à interroger.
+
+    `/events` renvoie TOUS les matchs à venir (plusieurs jours) : sans filtre, le match du
+    lendemain d'une équipe en back-to-back était aussi lu, et ses cotes se mélangeaient à
+    celles du soir. On garde donc uniquement les events qui commencent dans
+    [now − 30 min, now + window_hours] et, si `games` est fourni, dont l'affiche
+    (domicile, extérieur) est exactement l'une des affiches demandées.
+
+    Args:
+        events: réponse JSON de `/events`.
+        target_teams: noms des équipes des joueurs (utilisé si `games` est None).
+        games: affiches attendues [(domicile, extérieur)].
+        now: instant de référence (UTC) ; défaut maintenant.
+        window_hours: horizon maximal de début de match.
+        team_key: nom d'équipe -> clé de comparaison (défaut : nom normalisé sans
+            accents ni ponctuation). Permet de gérer les alias ("Utah Mammoth").
+    """
+    key = team_key or _norm
+    now = now or datetime.now(timezone.utc)
+    lo, hi = now - timedelta(minutes=30), now + timedelta(hours=window_hours)
+    pairs = {(key(h), key(a)) for h, a in games} if games else None
+    teams = {key(t) for t in target_teams}
+    out = []
+    for ev in events:
+        try:
+            start = datetime.fromisoformat(str(ev.get("commence_time", "")).replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(f"[OddsAPI] commence_time illisible pour l'event {ev.get('id')} — ignoré.")
+            continue
+        if not lo <= start <= hi:
+            continue
+        home, away = key(ev.get("home_team", "")), key(ev.get("away_team", ""))
+        if pairs is not None:
+            if (home, away) in pairs:
+                out.append(ev["id"])
+        elif home in teams or away in teams:
+            out.append(ev["id"])
+    return out
+
+
 class OddsAPIClient:
     """Client centralisé pour The Odds API avec gestion de quota."""
     
@@ -101,7 +146,9 @@ class OddsAPIClient:
                          exec_only_winamax: bool = False,
                          exec_books: Optional[Iterable[str]] = None,
                          proxy: Optional[Tuple[float, float]] = None,
-                         team_names: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, Any]]:
+                         team_names: Optional[Dict[str, str]] = None,
+                         games: Optional[Iterable[Tuple[str, str]]] = None,
+                         team_key: Optional[Callable[[str], str]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Récupère les cotes pour une liste de joueurs sur un marché donné.
         
@@ -121,6 +168,8 @@ class OddsAPIClient:
                 sur exec_books.
             team_names: {abréviation: nom complet} pour cibler les events
                 (les events The Odds API utilisent les noms complets).
+            games: affiches du soir [(domicile, extérieur)] en noms complets. Seuls ces
+                events sont interrogés (cf. select_events).
             
         Returns:
             Dict { "Nom_Joueur": { "MARCHE": {price, bookmaker, is_winamax, pin_yes, pin_no, p_novig,
@@ -153,24 +202,10 @@ class OddsAPIClient:
                 logger.error(f"Erreur connexion The Odds API (Events): {e}")
                 return {}
 
-            # Filtrer les events pour ne cibler que ceux où jouent nos joueurs
-            # players_map contient {joueur: equipe}
+            # Events du soir uniquement (fenêtre de début) et, si fournies, affiches exactes
             target_teams = {(team_names or {}).get(t, t) for t in players_map.values()}
-            target_events = []
-            for ev in events_data:
-                home = ev.get('home_team', '')
-                away = ev.get('away_team', '')
-                
-                # Checking partial overlap to accommodate different team names
-                is_target = False
-                for team in target_teams:
-                    if team.lower() in home.lower() or team.lower() in away.lower() or home.lower() in team.lower() or away.lower() in team.lower():
-                        is_target = True
-                        break
-                        
-                if is_target:
-                    target_events.append(ev['id'])
-                    
+            target_events = select_events(events_data, target_teams, games, team_key=team_key)
+
             if not target_events:
                 logger.warning(f"Aucun match correspondant trouvé dans l'API The Odds pour {target_teams}")
                 return {}
@@ -284,11 +319,23 @@ class OddsAPIClient:
                 logger.warning(f"[OddsAPI] Aucun book d'exécution ({sorted(exec_set)}) ne cote {market} : aucun pari possible.")
             return results
 
-async def fetch_nhl_odds(players_map: Dict[str, str]) -> Dict[str, Dict[str, float]]:
+def nhl_team_key() -> Callable[[str], str]:
+    """Nom d'équipe (complet, alias, accentué) -> abréviation NHL ; sinon nom normalisé.
+
+    The Odds API écrit « Montréal Canadiens », « St Louis Blues », « Utah Mammoth ».
+    """
+    from nhl.config.constants import TEAM_FULL_TO_ABBR
+    idx = {_norm(k): v for k, v in TEAM_FULL_TO_ABBR.items()}
+    return lambda name: idx.get(_norm(name), _norm(name))
+
+
+async def fetch_nhl_odds(players_map: Dict[str, str],
+                         games: Optional[Iterable[Tuple[str, str]]] = None) -> Dict[str, Dict[str, float]]:
     """
     Scrape les cotes NHL (Buteurs, Passeurs, Pointeurs).
     Args:
         players_map: Dict {Nom_Joueur: Equipe}.
+        games: affiches du soir [(domicile, extérieur)], abréviations ou noms complets.
     Returns:
         Dict des cotes: {'McDavid': {'BUTEUR': 2.2, 'PASSEUR': 1.8}}
     """
@@ -305,9 +352,11 @@ async def fetch_nhl_odds(players_map: Dict[str, str]) -> Dict[str, Dict[str, flo
     b = cfg.betting
     books = list(getattr(b, "exec_books", ["winamax_fr"]))
     proxy = ((b.exec_haircut, b.pin_haircut) if getattr(b, "exec_mode", "proxy") == "proxy" else None)
+    full = [(TEAM_ABBR_TO_FULL.get(h, h), TEAM_ABBR_TO_FULL.get(a, a)) for h, a in games] if games else None
+    key = nhl_team_key()
     tasks = [
         OddsAPIClient.fetch_odds('icehockey_nhl', mk, players_map, exec_books=books, proxy=proxy,
-                                 team_names=TEAM_ABBR_TO_FULL)
+                                 team_names=TEAM_ABBR_TO_FULL, games=full, team_key=key)
         for mk in ('player_goal_scorer_anytime', 'player_assists')
     ]
     

@@ -19,6 +19,7 @@ import asyncio
 from nhl.core.datastore import DataStore
 from nhl.core.services import TelegramNotifier
 from nhl.config.settings import cfg
+from nhl.core.inference import InsufficientHistoryError
 
 logger = logging.getLogger("NHL.BotLogic")
 
@@ -58,6 +59,7 @@ class NhlBot(BaseSportBot):
         self.players_log_path: str = './stats/players_log.csv'
         self.fichier_compos_temp: str = "compos_live.txt"
         self.is_paused: bool = False
+        self._history_alert_sent: bool = False
         self.sent_state_path: str = "sent_matches.json"
         self._load_sent_matches()
         from nhl.core.inference import FeatureEngine
@@ -144,6 +146,12 @@ class NhlBot(BaseSportBot):
                 self.engine.refresh()
                 logger.info("Fichiers API NHL mis à jour avec succès et chargés en RAM.")
                 return True
+            except InsufficientHistoryError as e:
+                logger.critical(str(e))
+                if not self._history_alert_sent:
+                    self.telegram.send_message(f"🚨 <b>NHL : aucun pick</b>\n{e}")
+                    self._history_alert_sent = True
+                return False
             except Exception as e:
                 logger.error(f"Exception lors de la mise à jour des stats : {e}")
                 import traceback
@@ -435,7 +443,11 @@ class NhlBot(BaseSportBot):
         seen_players: Set[str] = set()
 
         if self.engine.logs is None:
-            self.engine.refresh()
+            try:
+                self.engine.refresh()
+            except InsufficientHistoryError as e:
+                logger.critical(f"Vague {wave_label} ignorée : {e}")
+                return
         ml_models = {m: b for m, b in self.engine.models.items()
                      if b.get("features_version") == FEATURES_VERSION}
         for m in set(self.engine.models) - set(ml_models):
@@ -489,8 +501,10 @@ class NhlBot(BaseSportBot):
             v5_p = ds.v5_data.get(player, {})
             is_home = team in home_teams
 
+            # GP de la saison calculé sur les logs (pas de repli sur la saison précédente)
+            v5_eval = {**(v5_p or {}), "GP": self.engine.season_games(player, team, self.get_nhl_session_date())}
             cat_but, cat_ast = evaluate_player_markets(
-                player, p_form, v5_p, adv_stats, is_home
+                player, p_form, v5_eval, adv_stats, is_home
             )
 
             is_pp1 = player in pp1_players
@@ -539,7 +553,7 @@ class NhlBot(BaseSportBot):
             # asyncio.run() ne fonctionne pas dans un thread background — créer un loop dédié
             loop = asyncio.new_event_loop()
             try:
-                odds_map = loop.run_until_complete(fetch_nhl_odds(players_to_fetch))
+                odds_map = loop.run_until_complete(fetch_nhl_odds(players_to_fetch, games=matches_soir))
             finally:
                 loop.close()
             
@@ -584,6 +598,7 @@ class NhlBot(BaseSportBot):
                 if market not in ml_models or not pred or market not in pred:
                     continue
                 p["PModel"] = pred[market]
+                p["PlayerId"] = pred.get("playerId")
                 p["Features"] = pred["features"].get(market, {})
                 p["ModelVersion"] = f"{ml_models[market].get('algo')}@{ml_models[market].get('train_cutoff')}"
                 for ep in all_evaluated_players:

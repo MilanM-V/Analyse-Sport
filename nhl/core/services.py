@@ -519,6 +519,9 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         logger.info(f"[Retrain] code={res.returncode}\n{tail}")
         if res.returncode == 0:
             nhl_bot.engine.models = __import__("nhl.core.inference", fromlist=["load_models"]).load_models()
+            gate = [ln.strip() for ln in (res.stdout or "").splitlines() if "[gate]" in ln]
+            if gate:
+                nhl_bot.telegram.send_message("🔁 <b>Retrain NHL</b>\n" + "\n".join(gate))
         else:
             nhl_bot.telegram.send_message(f"⚠️ <b>Retrain NHL en échec</b> (code {res.returncode})")
 

@@ -158,6 +158,9 @@ def init_db():
         ("cote_reelle", "REAL DEFAULT NULL"),
         ("book_reel", "TEXT DEFAULT NULL"),
         ("pris", "INTEGER DEFAULT NULL"),
+        # Audit 2026-10-04 : résolution par playerId et paris annulés (joueur non aligné)
+        ("player_id", "INTEGER DEFAULT NULL"),
+        ("statut", "TEXT DEFAULT NULL"),
     ]
     
     for table in tables_to_fix:
