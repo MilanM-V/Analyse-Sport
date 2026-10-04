@@ -1,14 +1,66 @@
 {
-  "last_updated": "2026-10-03T18:09:05.659109+00:00",
+  "last_updated": "2026-10-04T14:39:02.819261+00:00",
   "kpis": {
-    "current_balance": 98.85,
-    "total_profit": -1.15,
-    "winrate": 50.0,
-    "roi": -46.0,
-    "total_bets": 2,
-    "pending_exposure": 8.0
+    "current_balance": 98.35,
+    "total_profit": -1.65,
+    "winrate": 33.3,
+    "roi": -55.0,
+    "total_bets": 3,
+    "pending_exposure": 12.5
   },
   "pending_bets": [
+    {
+      "id": 20,
+      "timestamp": "2026-10-04T16:39:02.782672",
+      "sport": "nhl",
+      "pick_id": 14,
+      "player": "Filip Hronek",
+      "market": "PASSEUR",
+      "cote": 2.65,
+      "mise": 2.0,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 19,
+      "timestamp": "2026-10-04T16:39:02.780398",
+      "sport": "nhl",
+      "pick_id": 13,
+      "player": "Brock Boeser",
+      "market": "PASSEUR",
+      "cote": 3.15,
+      "mise": 2.0,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 18,
+      "timestamp": "2026-10-04T16:39:02.777207",
+      "sport": "nhl",
+      "pick_id": 12,
+      "player": "Jared McCann",
+      "market": "PASSEUR",
+      "cote": 2.75,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
+    {
+      "id": 17,
+      "timestamp": "2026-10-04T16:39:02.773941",
+      "sport": "nhl",
+      "pick_id": 6,
+      "player": "Marco Rossi",
+      "market": "BUTEUR",
+      "cote": 5.0,
+      "mise": 0.5,
+      "gain": null,
+      "solde_apres": null,
+      "resolved": 0
+    },
     {
       "id": 16,
       "timestamp": "2026-10-03T20:09:05.581327",
@@ -112,7 +164,9 @@
       "gain": null,
       "solde_apres": null,
       "resolved": 0
-    },
+    }
+  ],
+  "history": [
     {
       "id": 8,
       "timestamp": "2026-10-03T16:37:24.527913",
@@ -122,12 +176,10 @@
       "market": "BUTEUR",
       "cote": 4.7,
       "mise": 0.5,
-      "gain": null,
-      "solde_apres": null,
-      "resolved": 0
-    }
-  ],
-  "history": [
+      "gain": -0.5,
+      "solde_apres": 98.35,
+      "resolved": 1
+    },
     {
       "id": 7,
       "timestamp": "2026-10-01T21:22:17.335028",
@@ -167,6 +219,10 @@
     {
       "date": "2026-10-01T21:22:17.335028",
       "balance": 98.85
+    },
+    {
+      "date": "2026-10-03T16:37:24.527913",
+      "balance": 98.35
     }
   ]
 }
