@@ -103,8 +103,9 @@ enabled = true
 books = ["unibet", "betclic"]
 # true : la meilleure cote parmi exec_books remplace la cote estimée (médiane US décotée) pour
 # sélectionner, miser et afficher le pick (« @3,02 chez Betclic »). false : journalisation seule.
-use_as_exec = false
-exec_books = ["winamax", "unibet", "betclic"]  # ne garder que les sites où tu as un compte
+# Sans cote française pour un joueur (site en panne, joueur non coté), la cote estimée reste utilisée.
+use_as_exec = true
+exec_books = ["winamax", "unibet", "betclic"]  # sites où tu as un compte (les 3, 2026-10-05)
 winamax_source = "page"   # "page" (PRELOADED_STATE) ou "socket" (canal temps réel) ; l'autre sert de repli
 proxy_winamax = ""        # ex. "socks5h://127.0.0.1:1080" si Winamax doit sortir par une IP française
 timeout_s = 20
