@@ -1,0 +1,156 @@
+{
+  "source": "vraies cotes Winamax relevées par nhl/scripts/winamax_calibration.py",
+  "dates": [
+    "2026-10-01",
+    "2026-10-03"
+  ],
+  "games": 15,
+  "lines": 841,
+  "rule": "Pinnacle « Oui » × vs_pin si Pinnacle cote ; sinon médiane US × soft (marché, sans Pinnacle, tranche de la médiane US)",
+  "vs_pin": {
+    "ast": 1.0,
+    "but": 1.0
+  },
+  "soft": [
+    {
+      "market": "ast",
+      "pinnacle": false,
+      "lo": 1,
+      "hi": 2,
+      "ratio": 0.8520622895622895
+    },
+    {
+      "market": "ast",
+      "pinnacle": false,
+      "lo": 2,
+      "hi": 3,
+      "ratio": 0.9827586206896552
+    },
+    {
+      "market": "ast",
+      "pinnacle": false,
+      "lo": 3,
+      "hi": 4.5,
+      "ratio": 0.8482142857142856
+    },
+    {
+      "market": "ast",
+      "pinnacle": false,
+      "lo": 4.5,
+      "hi": 7,
+      "ratio": 0.5789007092198581
+    },
+    {
+      "market": "ast",
+      "pinnacle": false,
+      "lo": 7,
+      "hi": 100,
+      "ratio": 0.8520622895622895
+    },
+    {
+      "market": "ast",
+      "pinnacle": true,
+      "lo": 1,
+      "hi": 2,
+      "ratio": 1.023391812865497
+    },
+    {
+      "market": "ast",
+      "pinnacle": true,
+      "lo": 2,
+      "hi": 3,
+      "ratio": 1.023391812865497
+    },
+    {
+      "market": "ast",
+      "pinnacle": true,
+      "lo": 3,
+      "hi": 4.5,
+      "ratio": 1.023391812865497
+    },
+    {
+      "market": "ast",
+      "pinnacle": true,
+      "lo": 4.5,
+      "hi": 7,
+      "ratio": 1.023391812865497
+    },
+    {
+      "market": "ast",
+      "pinnacle": true,
+      "lo": 7,
+      "hi": 100,
+      "ratio": 1.023391812865497
+    },
+    {
+      "market": "but",
+      "pinnacle": false,
+      "lo": 1,
+      "hi": 2,
+      "ratio": 1.1111111111111112
+    },
+    {
+      "market": "but",
+      "pinnacle": false,
+      "lo": 2,
+      "hi": 3,
+      "ratio": 1.1111111111111112
+    },
+    {
+      "market": "but",
+      "pinnacle": false,
+      "lo": 3,
+      "hi": 4.5,
+      "ratio": 1.1060606060606062
+    },
+    {
+      "market": "but",
+      "pinnacle": false,
+      "lo": 4.5,
+      "hi": 7,
+      "ratio": 1.0892857142857142
+    },
+    {
+      "market": "but",
+      "pinnacle": false,
+      "lo": 7,
+      "hi": 100,
+      "ratio": 1.1333333333333333
+    },
+    {
+      "market": "but",
+      "pinnacle": true,
+      "lo": 1,
+      "hi": 2,
+      "ratio": 1.0256410256410258
+    },
+    {
+      "market": "but",
+      "pinnacle": true,
+      "lo": 2,
+      "hi": 3,
+      "ratio": 1.0256410256410258
+    },
+    {
+      "market": "but",
+      "pinnacle": true,
+      "lo": 3,
+      "hi": 4.5,
+      "ratio": 1.0256410256410258
+    },
+    {
+      "market": "but",
+      "pinnacle": true,
+      "lo": 4.5,
+      "hi": 7,
+      "ratio": 1.0256410256410258
+    },
+    {
+      "market": "but",
+      "pinnacle": true,
+      "lo": 7,
+      "hi": 100,
+      "ratio": 1.0256410256410258
+    }
+  ]
+}

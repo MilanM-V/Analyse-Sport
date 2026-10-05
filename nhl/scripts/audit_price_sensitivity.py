@@ -36,37 +36,15 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from nhl.core.betting import BetParams, select_bets  # noqa: E402
 from nhl.scripts.simulate_roi import ODDS_WIDE, REPORT_DIR, VAL_END, add_prod_price, apply_devig  # noqa: E402
+# Prix S1 / S2 : partagés avec le simulateur (S2 = prix réaliste de simulateur.html)
+from nhl.sim.real_price import CALIB_ROWS, calibration_ratios, price_pinnacle, price_segmented  # noqa: E402
 
-CALIB_ROWS = os.path.join(ROOT, "nhl", "data", "odds", "winamax_calibration_rows.parquet")
-BANDS = [1, 2, 3, 4.5, 7, 100]
-MIN_ROWS = 10  # sous ce nombre de lignes, une tranche prend le ratio médian de son segment
 pd.set_option("display.width", 250)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Calibration Winamax
 # ─────────────────────────────────────────────────────────────────────────────
-def calibration_ratios(calib: pd.DataFrame) -> Tuple[Dict, Dict[str, float]]:
-    """Ratios Winamax / médiane US par (marché, Pinnacle deux côtés ?, tranche de cote US).
-
-    Returns:
-        ({(marché, pin2, (bas, haut)): ratio}, {marché: médiane Winamax / Pinnacle « Oui »}).
-    """
-    c = calib.dropna(subset=["soft_median"]).copy()
-    c["pin2"] = c["pin_no"].notna() & c["pin_yes"].notna()
-    c["r"] = c["winamax"] / c["soft_median"]
-    soft = {}
-    for (mk, pin2), seg in c.groupby(["market", "pin2"]):
-        for lo, hi in zip(BANDS[:-1], BANDS[1:]):
-            band = seg[(seg.soft_median > lo) & (seg.soft_median <= hi)]
-            # Lignes couvertes par Pinnacle : ratio plat d'une tranche à l'autre -> ratio du segment
-            use_seg = pin2 or len(band) < MIN_ROWS
-            soft[(mk, bool(pin2), (lo, hi))] = float((seg if use_seg else band)["r"].median())
-    pin = c[c["pin2"]]
-    vs_pin = {mk: float((g["winamax"] / g["pin_yes"]).median()) for mk, g in pin.groupby("market")}
-    return soft, vs_pin
-
-
 def print_calibration(calib: pd.DataFrame) -> None:
     c = calib.dropna(subset=["soft_median"]).copy()
     c["couverture"] = np.where(c["pin_no"].notna() & c["pin_yes"].notna(), "Pinnacle 2 côtés", "sans Pinnacle")
@@ -96,22 +74,6 @@ def load_preds() -> pd.DataFrame:
         o["date"] = pd.to_datetime(o["date"])
         p = p.merge(o, on=["date", "playerId", "market"], how="left")
     return p.reset_index(drop=True)
-
-
-def price_segmented(p: pd.DataFrame, soft_r: Dict) -> pd.Series:
-    """S1 : Winamax = médiane US × ratio mesuré (marché, couverture Pinnacle, tranche) ; sinon Pinnacle."""
-    px = pd.Series(np.nan, index=p.index)
-    pin2 = p["p_novig"].notna()
-    for (mk, cov, (lo, hi)), r in soft_r.items():
-        m = (p.market == mk) & (pin2 == cov) & (p.soft_median > lo) & (p.soft_median <= hi)
-        px[m] = p.loc[m, "soft_median"] * r
-    return px.where(px.notna(), p["pin_yes"])
-
-
-def price_pinnacle(p: pd.DataFrame, s1: pd.Series, vs_pin: Dict[str, float]) -> pd.Series:
-    """S2 : Winamax = Pinnacle « Oui » × ratio mesuré quand Pinnacle cote, sinon S1."""
-    r = p["market"].map(vs_pin).fillna(1.0)
-    return (p["pin_yes"] * r).where(p["pin_yes"].notna(), s1)
 
 
 def run(p: pd.DataFrame, price: pd.Series) -> pd.DataFrame:

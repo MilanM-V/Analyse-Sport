@@ -2,6 +2,18 @@
 
 *2026-10-04 · `nhl/scripts/search_config.py` · résultats bruts : `config_search.csv` (672 configurations), `config_engines.csv`, `config_scenarios.json` · scénarios jouables dans `simulateur.html`.*
 
+> **Mise à jour du 2026-10-05 : grille rejouée au prix réaliste.** Le reste de ce rapport date du 04/10 et utilisait la cote estimée de la prod (médiane US × 1,078), environ 5 % trop généreuse (`nhl/AUDIT_DATA_PARIS_2026-10-04.md`, §2). La grille a été rejouée avec la cote Winamax reconstituée d'après de vraies cotes Winamax (`nhl/sim/real_price.py`, scénario S2 de l'audit). `config_search.csv`, `config_scenarios.json` et `simulateur.html` sont à jour.
+>
+> | Scénario (gain / saison) | Validation 2023-24 | Contrôle 2024-25 |
+> |---|---|---|
+> | Actuelle (prod) = Équilibré, 1 pari / match | +136,0 U | +3,3 U |
+> | Prudent (EV ≥ 4 %, poids 0,35 / 0,60, cote max 8, 1 pari / match) | +92,4 U | +1,2 U |
+> | Équilibré = Agressif (EV ≥ 8 %, paris par match illimités) | +170,9 U | −14,9 U |
+> | Buteur seul (EV ≥ 4 %, paris par match illimités) | +75,7 U | +24,2 U |
+> | Buteur seul (moteur prod) | +44,0 U | +30,2 U |
+>
+> La p-value Monte Carlo vaut désormais (k + 1) / (n + 1) : corrigée du nombre de configurations, elle ne peut plus afficher 0 (au mieux 672 / 5 001 ≈ 0,13).
+
 ## 1. En bref
 
 **Aucun moteur ne bat nettement l'actuel.** La performance se joue sur la stratégie de mise : seuil d'EV plus haut, plus de confiance dans le modèle, un pari par match.

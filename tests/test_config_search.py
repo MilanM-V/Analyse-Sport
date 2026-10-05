@@ -46,6 +46,14 @@ def test_scenario_rules_on_toy_grid():
     assert select_scenarios(g) == {"prudent": "c", "equilibre": "b", "agressif": "a", "buteur": "d"}
 
 
+def test_null_pvalue_is_never_zero():
+    """Estimateur (k + 1) / (n + 1) : un gain hors de portée du hasard donne 1 / (n + 1), pas 0
+    (sinon la correction par le nombre de configurations testées affichait 0)."""
+    from nhl.scripts.search_config import null_pvalue
+    b = pd.DataFrame({"p_novig": [0.2] * 50, "cote": [4.0] * 50, "mise": [1.0] * 50, "profit": [3.0] * 50})
+    assert null_pvalue(b, n_sims=999) == 1 / 1000
+
+
 PREDS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "nhl", "reports", "preds_p1b_ens.parquet")
 
 
