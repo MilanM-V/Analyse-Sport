@@ -3,8 +3,8 @@ scripts/export_simulator_data.py — Injecte les données réelles du moteur dan
 
 Source : les CONFIGURATIONS de nhl/reports/config_scenarios.json (search_config.py) : chacune
 est un moteur (prédictions walk-forward) + une stratégie (select_bets), toutes rejouées au prix
-de prod calibré (médiane US × exec_haircut ; passes = Pinnacle × pin_haircut) avec le no-vig
-de prod. La config « actuelle » correspond à settings.toml.
+réaliste (nhl/sim/real_price.py : cote Winamax reconstituée d'après de vraies cotes Winamax)
+avec le no-vig de prod. La config « actuelle » correspond à settings.toml.
 
 Les paris sont regroupés par SOIRÉE (toutes les soirées cotées, y compris celles sans
 pari) : le simulateur rééchantillonne des soirées entières, ce qui conserve la
@@ -36,17 +36,20 @@ if hasattr(sys.stdout, "reconfigure"):
 from nhl.core.betting import BetParams  # noqa: E402
 from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
-from nhl.sim.version import EXEC_HAIRCUT, EXEC_HAIRCUT_AST, PIN_HAIRCUT, current_version  # noqa: E402
+from nhl.sim.real_price import add_real_price, describe as describe_price  # noqa: E402
+from nhl.sim.version import current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
 def load_preds(src: str) -> pd.DataFrame:
-    """Prédictions walk-forward avec l'éligibilité de prod."""
+    """Prédictions walk-forward avec l'éligibilité de prod et le prix réaliste (`real_price`)."""
     from nhl.config.settings import cfg
     from nhl.scripts.simulate_roi import add_prod_price, apply_devig
     p = pd.read_parquet(os.path.join(REPORT_DIR, f"preds_{src}.parquet"))
     p["date"] = pd.to_datetime(p["date"])
-    # Même prix et même no-vig Pinnacle que la prod
+    # Même no-vig Pinnacle que la prod ; prix = cote Winamax reconstituée (prod_price reste
+    # la cote estimée de la prod, gardée pour comparaison)
     p = apply_devig(add_prod_price(p), getattr(cfg.betting, "devig_method", "multiplicative"))
+    p = add_real_price(p)
     parts = []
     for m in ("but", "ast"):
         sub = p[p["market"] == m].reset_index(drop=True)
@@ -103,15 +106,14 @@ def export() -> str:
     with open(SCENARIOS_JSON, encoding="utf-8") as f:
         scen = json.load(f)
     base = load_engine("p1b_ens")
-    priced = base[base["eligible"] & base["prod_price"].notna()]
+    priced = base[base["eligible"] & base["real_price"].notna()]
     all_dates = sorted(priced["date"].unique())
     params = BetParams.from_config()
     data = {
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "version": current_version(),
-        "source": "configurations de nhl/reports/config_scenarios.json, prix de prod calibré",
-        "price": (f"médiane US × {EXEC_HAIRCUT:.3f} au buteur, × {EXEC_HAIRCUT_AST:.2f} aux passes ; "
-                  f"à défaut Pinnacle × {PIN_HAIRCUT:.2f}").replace(".", ","),
+        "source": "configurations de nhl/reports/config_scenarios.json, prix réaliste (nhl/sim/real_price.py)",
+        "price": describe_price(),
         "period": [pd.Timestamp(all_dates[0]).strftime("%Y-%m-%d"), pd.Timestamp(all_dates[-1]).strftime("%Y-%m-%d")],
         "params": {"kelly_fraction": params.kelly_fraction, "min_stake": params.min_stake,
                    "max_game": params.max_game_exposure, "max_day": params.max_daily_exposure},

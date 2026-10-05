@@ -2,7 +2,9 @@
 scripts/search_config.py — Recherche de la meilleure configuration (moteur + stratégie de mise).
 
 Protocole (fixé avant de lancer la recherche, cf. CONFIG_SEARCH_2026-10-04.md) :
-- prédictions walk-forward existantes, prix de prod calibré, no-vig Pinnacle de Shin ;
+- prédictions walk-forward existantes, no-vig Pinnacle de Shin ; prix réaliste de
+  nhl/sim/real_price.py (cote Winamax reconstituée d'après de vraies cotes Winamax) depuis le
+  2026-10-05, au lieu de la cote estimée de la prod (médiane US × décote, trop généreuse) ;
 - CHOIX sur la validation (saison 2023-24) uniquement ; contrôle (oct. 2024 → janv. 2025)
   affiché à part, jamais utilisé pour choisir ;
 - scénarios retenus par des règles écrites à l'avance (SCENARIO_RULES) ;
@@ -32,6 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from nhl.core.betting import BetParams, select_bets  # noqa: E402
 from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END, bootstrap_ci, variance_metrics  # noqa: E402
+from nhl.sim.real_price import describe as describe_price  # noqa: E402
 
 GRID_CSV = os.path.join(REPORT_DIR, "config_search.csv")
 SCENARIOS_JSON = os.path.join(REPORT_DIR, "config_scenarios.json")
@@ -94,7 +97,7 @@ def current_config() -> Config:
 # Données
 # ─────────────────────────────────────────────────────────────────────────────
 def load_engine(name: str) -> pd.DataFrame:
-    """Prédictions d'un moteur avec éligibilité, prix de prod et no-vig de prod."""
+    """Prédictions d'un moteur avec éligibilité, prix réaliste et no-vig de prod."""
     from nhl.scripts.export_simulator_data import load_preds
     if name == "avg_ens_v2":
         a, b = load_engine("p1b_ens"), load_engine("x_feat_lgbm")
@@ -106,13 +109,13 @@ def load_engine(name: str) -> pd.DataFrame:
 
 
 def day_candidates(df: pd.DataFrame) -> Dict[pd.Timestamp, List[dict]]:
-    """Candidats de chaque soirée (lignes éligibles avec un prix de prod)."""
-    d = df[df["eligible"] & df["prod_price"].notna()]
+    """Candidats de chaque soirée (lignes éligibles avec un prix réaliste)."""
+    d = df[df["eligible"] & df["real_price"].notna()]
     out = {}
     for date, day in d.groupby("date", sort=True):
         out[date] = [{"market": x.market, "p_model": float(x.p_model),
                       "p_novig": (float(x.p_novig) if x.p_novig == x.p_novig else None),
-                      "cote": float(x.prod_price), "game_id": x.gameId, "won": int(x.won), "date": date,
+                      "cote": float(x.real_price), "game_id": x.gameId, "won": int(x.won), "date": date,
                       "soft": (float(x.soft_median) if x.soft_median == x.soft_median else None)}
                      for x in day.itertuples(index=False)]
     return out
@@ -244,7 +247,8 @@ def null_pvalue(b: pd.DataFrame, n_sims: int = 5000, seed: int = 0) -> Optional[
     """P(gain ≥ gain observé) si les résultats suivaient la proba Pinnacle (aucun edge).
 
     Paris sans Pinnacle : proba implicite de la cote (marge incluse), ce qui avantage
-    l'hypothèse nulle (p-value prudente).
+    l'hypothèse nulle (p-value prudente). Estimateur (k + 1) / (n + 1) : jamais 0, sinon la
+    correction de Bonferroni (× nombre de configs) affichait 0 au lieu d'au moins 672 / 5 001.
     """
     if b.empty:
         return None
@@ -252,14 +256,14 @@ def null_pvalue(b: pd.DataFrame, n_sims: int = 5000, seed: int = 0) -> Optional[
     rng = np.random.default_rng(seed)
     wins = rng.random((n_sims, len(b))) < p0
     gains = np.where(wins, (b["mise"] * (b["cote"] - 1)).to_numpy(), -b["mise"].to_numpy()).sum(1)
-    return float((gains >= b["profit"].sum()).mean())
+    return float(((gains >= b["profit"].sum()).sum() + 1) / (n_sims + 1))
 
 
 def main() -> None:
     print("Chargement des moteurs...")
     frames = {e: load_engine(e) for e in ENGINES}
     base = frames["p1b_ens"]
-    priced = base[base["eligible"] & base["prod_price"].notna()]
+    priced = base[base["eligible"] & base["real_price"].notna()]
     counts = {per: {"nights": int(priced[m]["date"].nunique()), "games": int(priced[m]["gameId"].nunique())}
               for per, m in (("val", priced["date"] < VAL_END), ("ctl", priced["date"] >= VAL_END))}
     print(f"Soirées / matchs cotés : {counts}")
@@ -287,7 +291,7 @@ def main() -> None:
               "actuelle": ("Actuelle (prod)", "config de settings.toml")}
     n_tested = len(grid)
     scen = {"protocol": {"selection": "validation 2023-24", "control": "oct. 2024 → janv. 2025",
-                         "n_configs": n_tested, "counts": counts,
+                         "price": describe_price(), "n_configs": n_tested, "counts": counts,
                          "rules": {k: v[1] for k, v in SCENARIO_RULES.items()}},
             "scenarios": {}}
     for name, key in chosen.items():
