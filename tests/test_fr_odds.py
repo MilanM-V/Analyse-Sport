@@ -84,7 +84,7 @@ def _rows(rows):
 
 # ── Noms d'équipes et de joueurs ────────────────────────────────────────────
 @pytest.mark.parametrize("label,abbr", [
-    ("NY Rangers", "NYR"), ("UTA HockeyClub", "UTA"), ("VEG GKnights", "VGK"), ("CAL Flames", "CGY"),
+    ("NY Rangers", "NYR"), ("UTA HockeyClub", "UTA"), ("VEG GKnights", "VGK"), ("CAL Flames", "CGY"), ("TOR MapleLeafs", "TOR"),
     ("MON Canadiens", "MTL"), ("WAS Capitals", "WSH"), ("WIN Jets", "WPG"), ("FLO Panthers", "FLA"),
     ("LA Kings", "LAK"), ("SJ Sharks", "SJS"), ("TB Lightning", "TBL"), ("Montréal Canadiens", "MTL"),
     ("St. Louis Blues", "STL"), ("Utah Mammoth", "UTA"), ("Vegas Golden Knights", "VGK"),

@@ -130,6 +130,7 @@ _NICKNAMES: Dict[Tuple[str, ...], str] = {
     ("devils",): "NJD", ("islanders",): "NYI", ("rangers",): "NYR", ("senators",): "OTT",
     ("flyers",): "PHI", ("penguins",): "PIT", ("sharks",): "SJS", ("kraken",): "SEA",
     ("blues",): "STL", ("lightning",): "TBL", ("maple", "leafs"): "TOR", ("mleafs",): "TOR",
+    ("mapleleafs",): "TOR",
     ("canucks",): "VAN", ("golden", "knights"): "VGK", ("gknights",): "VGK",
     ("capitals",): "WSH", ("jets",): "WPG", ("mammoth",): "UTA", ("hockey", "club"): "UTA",
     ("hockeyclub",): "UTA",

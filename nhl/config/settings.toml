@@ -97,16 +97,16 @@ max_daily_exposure_u = 30.0
 # Vraies cotes joueurs des books français, lues sur leurs pages publiques sans compte
 # (nhl/core/fr_odds.py ; test : python -m nhl.core.fr_odds --probe). Toutes les cotes lues sont
 # journalisées (table book_odds) à chaque vague et à T-5, avec Pinnacle et la médiane US.
-# Winamax ne sert ses données qu'aux IP françaises : le VPS IONOS (Francfort) ne peut pas le lire.
-# Ajouter "winamax" à books après la migration sur un VPS en France (2026-10-04).
+# Winamax ne sert ses données qu'aux IP françaises : lu depuis la migration sur le VPS OVH (France,
+# 2026-10-06). Sur ce VPS la page renvoie un état vide, le canal temps réel répond : source "socket".
 enabled = true
-books = ["unibet", "betclic"]
+books = ["winamax", "unibet", "betclic"]
 # true : la meilleure cote parmi exec_books remplace la cote estimée (médiane US décotée) pour
 # sélectionner, miser et afficher le pick (« @3,02 chez Betclic »). false : journalisation seule.
 # Sans cote française pour un joueur (site en panne, joueur non coté), la cote estimée reste utilisée.
 use_as_exec = true
 exec_books = ["winamax", "unibet", "betclic"]  # sites où tu as un compte (les 3, 2026-10-05)
-winamax_source = "page"   # "page" (PRELOADED_STATE) ou "socket" (canal temps réel) ; l'autre sert de repli
+winamax_source = "socket"  # "page" (PRELOADED_STATE) ou "socket" (canal temps réel) ; l'autre sert de repli
 proxy_winamax = ""        # ex. "socks5h://127.0.0.1:1080" si Winamax doit sortir par une IP française
 timeout_s = 20
 min_delay_s = 1.0         # pause entre deux pages d'un même site
