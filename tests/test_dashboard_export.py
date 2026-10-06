@@ -84,3 +84,32 @@ def test_vercel_rewrite_and_every_route_module_exist():
     for mod in re.findall(r"from '\./pages/(\w+)\.js'", app):
         assert os.path.exists(os.path.join(SITE, "js", "pages", f"{mod}.js")), mod
     assert 'src="js/app.js"' in open(os.path.join(SITE, "index.html"), encoding="utf-8").read()
+
+
+def test_bankroll_follows_bets_taken_and_cash_moves(bot_db, tmp_path, monkeypatch):
+    """Solde = 100 U + gains résolus (règle de Portfolio.get_balance) ; en attente = exposition seulement.
+    Courbe : 102 U après le pari gagné, 100 U après le perdu (baisse de 2 U), 110 U après le dépôt."""
+    from shared.portfolio import Portfolio
+    path = str(tmp_path / "portfolio.db")
+    pf = Portfolio(path)
+    won = pf.log_bet("nhl", "A", "BUTEUR", 3.0, 1.0, pick_id=1)
+    lost = pf.log_bet("nhl", "B", "PASSEUR", 2.0, 2.0, pick_id=2)
+    pf.log_bet("nhl", "C", "BUTEUR", 4.0, 0.5, pick_id=3)
+    pf.resolve_bet(won, True)
+    pf.resolve_bet(lost, False)
+    pf.deposit(10.0)
+    monkeypatch.setattr(botdata, "PORTFOLIO_DB", path)
+
+    b = exporter.get_bot_data()["bankroll"]
+    json.dumps(b, allow_nan=False)
+    assert b["balance"] == pytest.approx(pf.get_balance()) == pytest.approx(110.0)
+    assert b["pending"] == {"n": 1, "stake": 0.5}
+    assert b["stats"]["gain_paris"] == pytest.approx(0.0) and b["stats"]["n_joues"] == 2
+    assert b["stats"]["drawdown_max"] == pytest.approx(2.0) and b["stats"]["depots"] == 10.0
+    assert [e["statut"] for e in b["events"]] == ["dépôt", "en attente", "perdu", "gagné"]
+    assert len(b["daily"]) == 1 and b["daily"][0]["solde"] == pytest.approx(110.0)
+
+
+def test_bankroll_without_portfolio_is_empty(bot_db):
+    b = exporter.get_bot_data()["bankroll"]
+    assert b["balance"] == 100.0 and b["events"] == [] and b["stats"] is None

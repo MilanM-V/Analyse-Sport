@@ -3,7 +3,7 @@ dashboard/exporter.py — Données du dashboard Vercel (site statique dashboard/
 
 Fichiers écrits dans dashboard/ puis poussés sur la branche `dashboard-data` :
 - data.json : portefeuille (format historique, gardé pour compatibilité) ;
-- bot.json  : picks, KPIs (mode normal et mode découverte), gain cumulé, projection simulée ;
+- bot.json  : picks, KPIs (mode normal et mode découverte), gain cumulé, projection simulée, bankroll ;
 - db.json   : toutes les tables des bases du bot (lecture seule, lignes les plus récentes).
 """
 import os
@@ -114,7 +114,7 @@ def _records(df) -> List[Dict[str, Any]]:
 
 
 def get_bot_data() -> Dict[str, Any]:
-    """Contenu de bot.json : picks, KPIs, gain cumulé, détail par marché, projection simulée."""
+    """Contenu de bot.json : picks, KPIs, gain cumulé, détail par marché, projection simulée, bankroll."""
     from dashboard import botdata
     from nhl.config.settings import cfg
     p = botdata.picks()
@@ -125,7 +125,14 @@ def get_bot_data() -> Dict[str, Any]:
         "early": {k: _clean(getattr(cfg.early_season, k)) for k in ("enabled", "ev_min", "stake_mult")}
         if hasattr(cfg, "early_season") else None,
         "picks": [], "summary": None, "summary_early": None, "cumulative": [], "by_market": [], "projection": None,
+        "bankroll": None,
     }
+    bank = botdata.bankroll()
+    out["bankroll"] = {"initial": _clean(bank["initial"]), "balance": _clean(bank["balance"]),
+                       "pending": {k: _clean(v) for k, v in bank["pending"].items()},
+                       "stats": {k: _clean(v) for k, v in bank["stats"].items()} if bank["stats"] else None,
+                       "events": [{k: _clean(v) for k, v in r.items()} for r in bank["events"]],
+                       "daily": [{k: _clean(v) for k, v in r.items()} for r in bank["daily"]]}
     if not p.empty:
         q = p.copy()
         q["date"] = q["date"].dt.strftime("%Y-%m-%d")
