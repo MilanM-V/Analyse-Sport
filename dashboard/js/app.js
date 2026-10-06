@@ -2,6 +2,7 @@
 import { botFile } from './api.js';
 import { destroyCharts, errorBox } from './ui.js';
 import * as bot from './pages/bot.js';
+import * as bankroll from './pages/bankroll.js';
 import * as db from './pages/db.js';
 import * as standings from './pages/standings.js';
 import * as leaders from './pages/leaders.js';
@@ -12,11 +13,11 @@ import * as player from './pages/player.js';
 import * as about from './pages/about.js';
 
 const ROUTES = {
-  '': bot, base: db, classement: standings, leaders, resultats: results, calendrier: calendar,
+  '': bot, bankroll, base: db, classement: standings, leaders, resultats: results, calendrier: calendar,
   equipe: team, joueur: player, 'a-propos': about,
 };
 const NAV = [
-  ['Bot', [['', '🏒', 'Performances & picks'], ['base', '🗄️', 'Base de données']]],
+  ['Bot', [['', '🏒', 'Performances & picks'], ['bankroll', '💰', 'Bankroll'], ['base', '🗄️', 'Base de données']]],
   ['NHL', [['classement', '🏆', 'Classement'], ['leaders', '⭐', 'Meilleurs joueurs'], ['resultats', '📅', 'Résultats par soirée'],
     ['calendrier', '🗓️', 'Calendrier'], ['equipe', '👥', 'Équipes'], ['joueur', '🧑', 'Joueurs']]],
   ['Infos', [['a-propos', 'ℹ️', 'À propos']]],

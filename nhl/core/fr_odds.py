@@ -37,8 +37,10 @@ logger = logging.getLogger("NHL.FrOdds")
 
 BOOKS = ("winamax", "unibet", "betclic")
 BOOK_LABELS = {"winamax": "Winamax", "unibet": "Unibet", "betclic": "Betclic"}
-MARKET_KEYS = {"but": "BUTS", "ast": "ASSISTS"}       # clés de nhl.core.odds.fetch_nhl_odds
-_KEY_ALIASES = {"BUTS": "BUTEUR", "ASSISTS": "PASSEUR"}  # fetch_nhl_odds expose les deux noms
+# Clés de nhl.core.odds.fetch_nhl_odds. Les points sont journalisés seulement, jamais pariés.
+MARKET_KEYS = {"but": "BUTS", "ast": "ASSISTS", "pts": "POINTS"}
+BET_MARKETS = ("BUTS", "ASSISTS")  # marchés dont la cote FR peut devenir la cote d'exécution
+_KEY_ALIASES = {"BUTS": "BUTEUR", "ASSISTS": "PASSEUR", "POINTS": "POINTEUR"}  # fetch_nhl_odds expose les deux noms
 
 
 class BookUnavailable(RuntimeError):
@@ -96,6 +98,7 @@ class FrConfig:
     proxy_winamax: str = ""
     timeout_s: float = 20.0
     min_delay_s: float = 1.0
+    log_points: bool = False  # journalise le marché points (FR + Pinnacle) sans jamais le parier
 
 
 def settings() -> FrConfig:
@@ -113,6 +116,7 @@ def settings() -> FrConfig:
         proxy_winamax=str(getattr(c, "proxy_winamax", d.proxy_winamax) or ""),
         timeout_s=float(getattr(c, "timeout_s", d.timeout_s)),
         min_delay_s=float(getattr(c, "min_delay_s", d.min_delay_s)),
+        log_points=bool(getattr(c, "log_points", d.log_points)),
     )
 
 
@@ -130,6 +134,7 @@ _NICKNAMES: Dict[Tuple[str, ...], str] = {
     ("devils",): "NJD", ("islanders",): "NYI", ("rangers",): "NYR", ("senators",): "OTT",
     ("flyers",): "PHI", ("penguins",): "PIT", ("sharks",): "SJS", ("kraken",): "SEA",
     ("blues",): "STL", ("lightning",): "TBL", ("maple", "leafs"): "TOR", ("mleafs",): "TOR",
+    ("mapleleafs",): "TOR",
     ("canucks",): "VAN", ("golden", "knights"): "VGK", ("gknights",): "VGK",
     ("capitals",): "WSH", ("jets",): "WPG", ("mammoth",): "UTA", ("hockey", "club"): "UTA",
     ("hockeyclub",): "UTA",
@@ -202,14 +207,15 @@ WINAMAX_LIST = "https://www.winamax.fr/paris-sportifs/sports/4/37/142"
 WINAMAX_MATCH = "https://www.winamax.fr/paris-sportifs/match/{}"
 WINAMAX_SOCKET = "https://sports-eu-west-3.winamax.fr/uof-sports-server/socket.io/"
 _WM_STATE = re.compile(r"PRELOADED_STATE\s*=\s*(\{.*?\});\s*(?:var|</script>)", re.S)
-WM_MARKETS = {"Buteur": "but", "Passes décisives du joueur : 1 ou plus": "ast"}
+WM_MARKETS = {"Buteur": "but", "Passes décisives du joueur : 1 ou plus": "ast", "Points du joueur : 1 ou plus": "pts"}
 
 UNIBET = "https://www.unibet.fr"
 UNIBET_LIST = UNIBET + "/paris-hockey-sur-glace"
 _UB_STATE = re.compile(r'<script id="serverApp-state" type="application/json">(.*?)</script>', re.S)
 _UB_HREF = re.compile(r'href="(/paris-hockey-sur-glace/[^"]*/nhl/(\d+)/[^"]+)"')
 _UB_TITLE = re.compile(r'title="Voir plus de paris pour le match : ([^"|]+?) \|')
-UB_MARKETS = {"Nombre de Buts - Joueur": "but", "Nombre de Passes décisives - Joueur": "ast"}
+UB_MARKETS = {"Nombre de Buts - Joueur": "but", "Nombre de Passes décisives - Joueur": "ast",
+              "Nombre de Points - Joueur": "pts"}
 
 BETCLIC = "https://www.betclic.fr"
 BETCLIC_LIST = BETCLIC + "/hockey-sur-glace-sice_hockey/nhl-c83"
@@ -217,6 +223,7 @@ _BC_STATE = re.compile(r'<script id="ng-state" type="application/json">(.*?)</sc
 _BC_HREF = re.compile(r'href="(/hockey-sur-glace-sice_hockey/nhl-c83/([a-z0-9-]+)-m(\d+))"')
 BC_GOALS = "Buteur (prol. inc.)"
 BC_ASSISTS = "Nombre de passes décisives du joueur"
+BC_POINTS = "Nombre de points du joueur (buts + passes décisives)"
 
 
 def winamax_state(page: str) -> Dict[str, Any]:
@@ -243,7 +250,7 @@ def parse_winamax_listing(state: Dict[str, Any]) -> List[BookGame]:
 
 
 def parse_winamax_match(state: Dict[str, Any], match_id: str) -> List[PropRow]:
-    """Cotes buteur et passeur (1 ou plus) d'un match Winamax."""
+    """Cotes buteur, passeur et points (1 ou plus) d'un match Winamax."""
     outcomes, odds = state.get("outcomes") or {}, state.get("odds") or {}
     rows = []
     for bet in (state.get("bets") or {}).values():
@@ -269,7 +276,7 @@ def parse_unibet_listing(page: str) -> List[BookGame]:
 
 
 def parse_unibet_match(page: str) -> List[PropRow]:
-    """Cotes « 1+ » des marchés buts et passes d'une page de match Unibet."""
+    """Cotes « 1+ » des marchés buts, passes et points d'une page de match Unibet."""
     m = _UB_STATE.search(page or "")
     if not m:
         raise BookUnavailable("unibet : page sans serverApp-state")
@@ -311,7 +318,7 @@ def _betclic_selections(market: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def parse_betclic_match(page: str) -> List[PropRow]:
-    """Cotes buteur (prolongation incluse) et passeur (« 1 ou + ») d'une page de match Betclic."""
+    """Cotes buteur (prolongation incluse), passeur et points (« 1 ou + ») d'une page de match Betclic."""
     m = _BC_STATE.search(page or "")
     if not m:
         raise BookUnavailable("betclic : page sans ng-state")
@@ -330,11 +337,13 @@ def parse_betclic_match(page: str) -> List[PropRow]:
             if name == BC_GOALS and "splitCardGroups" in o and "but" not in seen:
                 seen.add("but")
                 take("but", o)
-            elif name == BC_ASSISTS and "groupMarkets" in o and "ast" not in seen:
-                seen.add("ast")
-                for g in o["groupMarkets"]:
-                    if g.get("name") == "1 ou +":
-                        take("ast", g)
+            elif name in (BC_ASSISTS, BC_POINTS) and "groupMarkets" in o:
+                market = "ast" if name == BC_ASSISTS else "pts"
+                if market not in seen:
+                    seen.add(market)
+                    for g in o["groupMarkets"]:
+                        if g.get("name") == "1 ou +":
+                            take(market, g)
             for v in o.values():
                 walk(v)
         elif isinstance(o, list):
@@ -584,7 +593,8 @@ def apply_fr_prices(results: Dict[str, Dict[str, Any]], fr: FrOdds, conf: Option
 
     Chaque marché reçoit `fr_prices = {book: cote}`. Si `use_as_exec`, la meilleure cote parmi
     `exec_books` devient la cote d'exécution (`price`, `bookmaker`, `price_source = "fr"`) ;
-    la cote estimée est conservée dans `proxy_price`.
+    la cote estimée est conservée dans `proxy_price`. Les points (`POINTS`) ne reçoivent que
+    `fr_prices` : ils sont journalisés, jamais pariés.
 
     Returns:
         Nombre de marchés dont la cote d'exécution est une cote française.
@@ -601,7 +611,7 @@ def apply_fr_prices(results: Dict[str, Dict[str, Any]], fr: FrOdds, conf: Option
                 entry[_KEY_ALIASES[key]] = d
             d["fr_prices"] = dict(by_book)
             playable = {b: p for b, p in by_book.items() if b in conf.exec_books}
-            if not conf.use_as_exec or not playable:
+            if not conf.use_as_exec or not playable or key not in BET_MARKETS:
                 continue
             best = max(playable, key=playable.get)
             if d.get("price") and d.get("price_source") != "fr":
@@ -645,10 +655,11 @@ def probe(books: Sequence[str], conf: Optional[FrConfig] = None) -> int:
                     break
             n_but = sum(r.market == "but" for r in rows)
             n_ast = sum(r.market == "ast" for r in rows)
+            n_pts = sum(r.market == "pts" for r in rows)
             ok = bool(listing) and n_but > 0
             failures += not ok
             print(f"{'OK ' if ok else 'NON'}  {book:8s} {len(listing)} matchs NHL"
-                  + (f" | {sample.home} - {sample.away} : buteur {n_but}, passes {n_ast}" if sample else "")
+                  + (f" | {sample.home} - {sample.away} : buteur {n_but}, passes {n_ast}, points {n_pts}" if sample else "")
                   + (f" | équipes non reconnues : {unknown}" if unknown else ""))
             for r in sorted((r for r in rows if r.market == "but"), key=lambda r: r.price)[:3]:
                 print(f"       {r.player} {r.price:.2f}")

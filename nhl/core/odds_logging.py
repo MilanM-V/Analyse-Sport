@@ -50,7 +50,8 @@ def log_book_odds(results: Dict[str, Dict[str, Any]], players_map: Dict[str, str
     """Journalise les cotes de chaque joueur évalué (table book_odds).
 
     Une ligne par cote d'un book français (`fr_prices`), une pour Pinnacle (cote = Oui,
-    cote_non = Non) et une pour la médiane des books US, sur les marchés buteur et passeur.
+    cote_non = Non) et une pour la médiane des books US, sur les marchés buteur, passeur et
+    points (`pts`, journalisé seulement).
 
     Args:
         results: sortie de nhl.core.odds.fetch_nhl_odds.
@@ -73,7 +74,7 @@ def log_book_odds(results: Dict[str, Dict[str, Any]], players_map: Dict[str, str
     recs = []
     for player, team in players_map.items():
         home, away = side.get(team, (None, None))
-        for key, market in (("BUTS", "but"), ("ASSISTS", "ast")):
+        for key, market in (("BUTS", "but"), ("ASSISTS", "ast"), ("POINTS", "pts")):
             d = (results.get(player) or {}).get(key)
             if not isinstance(d, dict):
                 continue

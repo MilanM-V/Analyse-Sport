@@ -2,7 +2,7 @@
 dashboard/botdata.py — Lecture seule des bases du bot pour le dashboard (export JSON, exporter.py).
 
 - nhl/bot_database.db : picks (buteur, passeur), joueurs évalués, contexte de match ;
-- portfolio.db (racine) : paris pris et solde.
+- portfolio.db (racine) : paris pris et solde (bankroll()).
 
 Les bases peuvent dater d'un ancien schéma : toute colonne absente est traitée comme vide.
 """
@@ -139,6 +139,68 @@ def portfolio(path: Optional[str] = None) -> pd.DataFrame:
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df["solde"] = 100.0 + df["gain"].where(df["resolved"] >= 1, 0).fillna(0).cumsum()
     return df
+
+
+INITIAL_BANKROLL = 100.0  # même valeur que shared.portfolio (non importé : lecture seule, sans effet de bord)
+BANK_MARKET_LABEL = {"BUTEUR": "Buteur", "PASSEUR": "Passeur", "POINTEUR": "Points", "DEPOSIT": "Dépôt",
+                     "WITHDRAW": "Retrait"}
+
+
+def bankroll(path: Optional[str] = None) -> Dict[str, object]:
+    """Évolution de la bankroll à partir du portefeuille (paris pris avec /pris, dépôts, retraits).
+
+    Le solde suit la règle de shared.portfolio.Portfolio.get_balance : 100 U + somme des gains
+    résolus. Les paris en attente ne bougent pas le solde (ils comptent dans l'exposition).
+    La date d'un pari est celle de sa prise : la courbe range chaque résultat au jour du pari.
+
+    Returns:
+        {"initial", "balance", "pending": {n, stake}, "stats": {...}, "events": [...], "daily": [...]}
+        (events et daily vides si la base n'existe pas).
+    """
+    df = read_table("portfolio", path or PORTFOLIO_DB)
+    out: Dict[str, object] = {"initial": INITIAL_BANKROLL, "balance": INITIAL_BANKROLL,
+                              "pending": {"n": 0, "stake": 0.0}, "stats": None, "events": [], "daily": []}
+    if df.empty:
+        return out
+    df = df.sort_values("id").reset_index(drop=True)
+    df["gain"] = pd.to_numeric(df["gain"], errors="coerce")
+    df["mise"] = pd.to_numeric(df["mise"], errors="coerce").fillna(0.0)
+    df["resolved"] = pd.to_numeric(df["resolved"], errors="coerce").fillna(0).astype(int)
+    df["date"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.strftime("%Y-%m-%d")
+    cash = df["market"].isin(["DEPOSIT", "WITHDRAW"])
+    df["statut"] = np.select(
+        [df["market"] == "DEPOSIT", df["market"] == "WITHDRAW", df["resolved"] == 0, df["resolved"] == 2,
+         df["gain"] > 0, df["gain"] < 0],
+        ["dépôt", "retrait", "en attente", "annulé", "gagné", "perdu"], default="remboursé")
+    settled = df["resolved"] >= 1
+    df["solde"] = INITIAL_BANKROLL + df["gain"].where(settled, 0.0).fillna(0.0).cumsum()
+    df["marche"] = df["market"].map(BANK_MARKET_LABEL).fillna(df["market"])
+    bets = df[~cash]
+    played = bets[bets["statut"].isin(["gagné", "perdu"])]
+    pending = bets[bets["statut"] == "en attente"]
+    curve = df["solde"]
+    stake = float(played["mise"].sum())
+    gain = float(played["gain"].sum())
+    out.update(
+        balance=float(curve.iloc[-1]),
+        pending={"n": int(len(pending)), "stake": float(pending["mise"].sum())},
+        stats={"n_paris": int(len(bets)), "n_joues": int(len(played)), "mise": stake, "gain_paris": gain,
+               "roi": gain / stake if stake else float("nan"),
+               "reussite": float((played["statut"] == "gagné").mean()) if len(played) else float("nan"),
+               "cote_moyenne": float(played["cote"].mean()) if len(played) else float("nan"),
+               "depots": float(df.loc[df["market"] == "DEPOSIT", "gain"].sum()),
+               "retraits": float(abs(df.loc[df["market"] == "WITHDRAW", "gain"].sum())),
+               "plus_haut": float(max(INITIAL_BANKROLL, curve.max())),
+               "drawdown_max": float((curve.cummax().clip(lower=INITIAL_BANKROLL) - curve).max())},
+        events=df[["id", "date", "sport", "player", "marche", "cote", "mise", "gain", "statut", "solde"]]
+        .iloc[::-1].to_dict("records"),
+    )
+    day = df.groupby("date", sort=True).agg(solde=("solde", "last")).reset_index()
+    flows = bets[bets["statut"].isin(["gagné", "perdu"])].groupby("date").agg(
+        gain=("gain", "sum"), mise=("mise", "sum"), paris=("id", "size")).reset_index()
+    day = day.merge(flows, on="date", how="left").fillna({"gain": 0.0, "mise": 0.0, "paris": 0})
+    out["daily"] = day.to_dict("records")
+    return out
 
 
 def bot_players_for(player: str, path: Optional[str] = None) -> pd.DataFrame:
