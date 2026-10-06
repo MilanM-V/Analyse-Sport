@@ -37,7 +37,8 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
         games: affiches du soir [(domicile, extérieur)], abréviations ou noms complets.
         log_moment: 'apercu' (compos probables), 'vague' (picks confirmés) ou 'cloture' (T-5) :
             journalise les cotes de tous les joueurs dans la table book_odds (books français,
-            Pinnacle, médiane US). None : pas de journalisation.
+            Pinnacle, médiane US). None : pas de journalisation. Avec [fr_odds] log_points, le
+            marché points (clé POINTS) est aussi demandé à l'aperçu et aux picks confirmés.
         session_date: date de session NHL (obligatoire avec log_moment).
     Returns:
         Dict des cotes: {'McDavid': {'BUTEUR': 2.2, 'PASSEUR': 1.8}}
@@ -65,7 +66,17 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
         for mk in ('player_goal_scorer_anytime', 'player_assists')
     ]
     
-    res_buteur, res_assist = await asyncio.gather(*tasks)
+    # Marché points : journalisé (aperçu, picks confirmés), jamais parié ni demandé à la clôture.
+    # proxy (1, 1) : seulement pour obtenir la médiane US (soft_median) journalisée.
+    fr_conf = fr_odds.settings()
+    with_points = fr_conf.log_points and log_moment in ("apercu", "vague")
+    if with_points:
+        tasks.append(OddsAPIClient.fetch_odds('icehockey_nhl', 'player_points', players_map, exec_books=books,
+                                              proxy=(1.0, 1.0), team_names=TEAM_ABBR_TO_FULL, games=full,
+                                              team_key=key, devig_method=getattr(b, "devig_method", "multiplicative")))
+
+    res_buteur, res_assist, *res_extra = await asyncio.gather(*tasks)
+    res_points = res_extra[0] if res_extra else {}
     
     # Fusion des résultats
     final_results = {}
@@ -79,10 +90,11 @@ async def fetch_nhl_odds(players_map: Dict[str, str],
             data_ast = res_assist[name]['ASSISTS']
             final_results[name]['PASSEUR'] = data_ast
             final_results[name]['ASSISTS'] = data_ast
+        if 'POINTS' in res_points.get(name, {}):
+            final_results[name]['POINTEUR'] = final_results[name]['POINTS'] = res_points[name]['POINTS']
 
     # Vraies cotes des books français (nhl/core/fr_odds.py) : référence journalisée et, si
     # [fr_odds] use_as_exec, cote d'exécution à la place de l'estimation (médiane US décotée).
-    fr_conf = fr_odds.settings()
     if fr_conf.enabled and games:
         try:
             fr = await asyncio.to_thread(fr_odds.fetch_fr_odds, list(games), players_map, None, fr_conf)

@@ -2,6 +2,8 @@
 scripts/fr_odds_report.py — Bilan des vraies cotes des books français (table book_odds).
 
 À lancer après 2 à 3 semaines de collecte (plan du 2026-10-04) :
+Marchés : but, ast et pts (au moins 1 point, journalisé seulement depuis le 2026-10-07).
+
 1. ratio de chaque book à la médiane US et à Pinnacle « Oui », par marché et tranche de cote :
    base pour recalibrer la cote estimée du backtest (exec_haircut, audit P0-1) ;
 2. part des lignes où le meilleur prix français dépasse le prix juste Pinnacle (Shin) ;
@@ -58,11 +60,13 @@ def load(db: str, moment: str) -> pd.DataFrame:
     wide["p_fair"] = devig_yes(wide["pinnacle"].to_numpy(float), wide["pin_no"].to_numpy(float), "shin")
     books = [b for b in FR_BOOKS if wide[b].notna().any()]
     wide["best_fr"] = wide[books].max(axis=1) if books else np.nan
-    wide["best_book"] = wide[books].idxmax(axis=1) if books else None
+    has_fr = wide[books].notna().any(axis=1) if books else None
+    wide["best_book"] = wide[books].fillna(0).idxmax(axis=1).where(has_fr) if books else None
     res = res.sort_values("id").groupby(["date", "joueur"], as_index=False).last()
     wide = wide.merge(res[["date", "joueur", "but", "assist"]], on=["date", "joueur"], how="left")
-    stat = np.where(wide["market"] == "but", wide["but"], wide["assist"])
-    wide["won"] = np.where(pd.isna(stat), np.nan, (pd.to_numeric(stat, errors="coerce") > 0).astype(float))
+    but, ast = pd.to_numeric(wide["but"], errors="coerce"), pd.to_numeric(wide["assist"], errors="coerce")
+    stat = np.select([wide["market"] == "but", wide["market"] == "ast"], [but, ast], but + ast)  # pts = buts + passes
+    wide["won"] = np.where(pd.isna(stat), np.nan, (stat > 0).astype(float))
     return wide
 
 
