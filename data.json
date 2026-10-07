@@ -1,14 +1,37 @@
 {
-  "last_updated": "2026-10-06T05:00:00.934784+00:00",
+  "last_updated": "2026-10-07T05:00:01.160577+00:00",
   "kpis": {
-    "current_balance": 100.0,
-    "total_profit": 0,
-    "winrate": 0.0,
+    "current_balance": 200.0,
+    "total_profit": 100.0,
+    "winrate": 100.0,
     "roi": 0.0,
-    "total_bets": 0,
+    "total_bets": 1,
     "pending_exposure": 0
   },
   "pending_bets": [],
-  "history": [],
-  "evolution": []
+  "history": [
+    {
+      "id": 1,
+      "timestamp": "2026-10-06T16:00:08.230440",
+      "sport": "deposit",
+      "pick_id": null,
+      "player": "ADMIN",
+      "market": "DEPOSIT",
+      "cote": 1.0,
+      "mise": 0.0,
+      "gain": 100.0,
+      "solde_apres": 200.0,
+      "resolved": 1
+    }
+  ],
+  "evolution": [
+    {
+      "date": "2026-10-06T16:00:08.230440 00:00:00",
+      "balance": 100.0
+    },
+    {
+      "date": "2026-10-06T16:00:08.230440",
+      "balance": 200.0
+    }
+  ]
 }
