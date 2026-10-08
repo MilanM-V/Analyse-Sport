@@ -102,7 +102,12 @@ dailyfaceoff = true  # lignes, unités PP / PK et blessés Daily Faceoff des éq
 # Moteur de prod (nhl/core/ensemble_model.TemporalCalibratedGBM), lu par nhl/scripts/train_models.py,
 # y compris par le retrain hebdomadaire du VPS. Avant le 2026-10-08, ce retrain entraînait un
 # LightGBM seul au lieu de l'ensemble validé.
+# Moteur v2 (2026-10-08, nhl/reports/COMBINAISON_PISTES_2026-10-08.md) : arbres + calibration Platt
+# (C2) + réseaux de neurones (C4) ; les 12 features xG (C5) sont dans nhl/core/features.FEATURES.
 algos = ["lgbm", "xgb", "cat"]
+calibration = "platt"   # "isotonic" = moteur p1 (paliers) ; "platt" = courbe lisse
+mlp_nets = 3            # réseaux de neurones moyennés (0 = arbres seuls)
+mlp_weight = 0.5        # poids des arbres dans la moyenne des logits (1 − poids pour les réseaux)
 
 [fr_odds]
 # Vraies cotes joueurs des books français, lues sur leurs pages publiques sans compte

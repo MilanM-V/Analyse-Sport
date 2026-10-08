@@ -54,7 +54,7 @@ def test_null_pvalue_is_never_zero():
     assert null_pvalue(b, n_sims=999) == 1 / 1000
 
 
-PREDS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "nhl", "reports", "preds_p1b_ens.parquet")
+PREDS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "nhl", "reports", "preds_v2.parquet")
 
 
 @pytest.mark.skipif(not os.path.exists(PREDS), reason="prédictions walk-forward absentes (fichiers dérivés, hors git)")

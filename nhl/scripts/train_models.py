@@ -33,10 +33,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from nhl.config.settings import cfg  # noqa: E402
-from nhl.core.ensemble_model import TemporalCalibratedGBM  # noqa: E402
+from nhl.core.ensemble_model import prod_model  # noqa: E402
 from nhl.core.monitoring import reference_profile  # noqa: E402
 from nhl.core.features import (FEATURES, FEATURES_VERSION, build_features,  # noqa: E402
-                               load_all_gamelogs, load_season_priors)
+                               load_all_gamelogs, load_season_priors, load_xg_table)
 
 MODELS_DIR = os.path.join(ROOT, "nhl", "models")
 LIVE_DIR = os.path.join(MODELS_DIR, "live")  # retrains du VPS : hors git (pas de conflit au pull)
@@ -48,8 +48,16 @@ DEFAULT_ALGOS = tuple(cfg.model.algos)
 
 
 def load_training_frame() -> pd.DataFrame:
-    """Features de tous les matchs joués (cibles connues), triées chronologiquement."""
-    df = build_features(load_all_gamelogs(), load_season_priors())
+    """Features de tous les matchs joués (cibles connues), triées chronologiquement.
+
+    Raises:
+        InsufficientHistoryError: table xG incomplète (on n'entraîne pas le moteur v2 sans elle).
+    """
+    from nhl.core.inference import check_xg_history
+    from nhl.data.gamelog_nhlapi import current_season
+    logs, xg = load_all_gamelogs(), load_xg_table()
+    check_xg_history(xg, logs, current_season())
+    df = build_features(logs, load_season_priors(), xg)
     df = df[(df["season"] >= MIN_SEASON) & df["target_but"].notna()]
     return df.sort_values(["date", "gameId", "playerId"]).reset_index(drop=True)
 
@@ -133,7 +141,7 @@ def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: b
     tr, hold = d[d["date"] <= cutoff], d[d["date"] > cutoff]
     print(f"\n=== {market.upper()} — train {len(tr):,} lignes (≤ {cutoff.date()}), holdout {len(hold):,} ===")
 
-    m = TemporalCalibratedGBM(algos=algos).fit(tr[feats].to_numpy(float), tr[target].to_numpy())
+    m = prod_model(algos).fit(tr[feats].to_numpy(float), tr[target].to_numpy())
     met = _metrics(hold[target].to_numpy(), m.predict_proba(hold[feats].to_numpy(float))[:, 1])
     print(f"  holdout : logloss={met['logloss']:.4f} brier={met['brier']:.4f} auc={met['auc']:.4f} "
           f"p_moy={met['mean_p']:.3f} taux={met['rate']:.3f}")
@@ -152,11 +160,11 @@ def train_market(df: pd.DataFrame, market: str, algos: Tuple[str, ...], force: b
         if not ok:
             return False
 
-    final = TemporalCalibratedGBM(algos=algos).fit(d[feats].to_numpy(float), d[target].to_numpy())
+    final = prod_model(algos).fit(d[feats].to_numpy(float), d[target].to_numpy())
     data_hash = hashlib.sha1(pd.util.hash_pandas_object(d[["playerId", "gameId"]], index=False).values).hexdigest()[:12]
     bundle = {
         "model": final, "features": feats, "features_version": FEATURES_VERSION,
-        "algo": "temporal_calibrated_gbm[" + "+".join(algos) + "]",
+        "algo": final.describe(),
         "train_cutoff": str(d["date"].max().date()), "train_samples": int(len(d)),
         "holdout_days": HOLDOUT_DAYS, "holdout_logloss": met["logloss"], "holdout_brier": met["brier"],
         "holdout_auc": met["auc"], "holdout_rate": met["rate"], "data_hash": data_hash,
@@ -213,7 +221,7 @@ def refresh_simulator() -> None:
         export()
     except FileNotFoundError as e:
         print(f"  ⚠️ simulateur NON régénéré (prédictions walk-forward absentes : {e}). "
-              "Lancer simulate_roi.py --phase p1b_ens puis export_simulator_data.py.")
+              "Lancer simulate_roi.py --phase v2 (et m0), search_config.py puis export_simulator_data.py.")
 
 
 if __name__ == "__main__":

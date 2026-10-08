@@ -624,6 +624,16 @@ class NhlBot(BaseSportBot):
             games.append({"gameId": int(mi["id"]), "home": loaders.clean_team_name(mi["home"]),
                           "away": loaders.clean_team_name(mi["away"])})
         lineup = {p["Joueur"]: p["Equipe"] for p in candidates_but + candidates_ast}
+        if ml_models:
+            # xG des derniers matchs (moteur v2) : mise à jour légère avant chaque vague
+            from nhl.core.inference import XG_MAX_LAG_DAYS
+            self.engine.refresh_xg()
+            day = self.get_nhl_session_date()
+            if self.engine.xg_lag > XG_MAX_LAG_DAYS and getattr(self, "_xg_alert_day", None) != day:
+                self.telegram.send_message(
+                    f"⚠️ <b>xG NHL en retard de {self.engine.xg_lag} jours</b>\nLes derniers matchs n'ont pas "
+                    "encore leur xG (miroir MoneyPuck ou API NHL) : les features xG utilisent les matchs précédents.")
+                self._xg_alert_day = day
         preds = self.engine.predict(games, lineup, self.get_nhl_session_date()) if ml_models else {}
 
         # Passe 4 : stratégie de mise P2 (nhl/core/betting.py) — mélange modèle / Pinnacle

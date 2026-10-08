@@ -10,6 +10,11 @@ match (shift(1) systématique), et ne dépendent que de stats définies à l'ide
 dans les deux sources (buts, passes, tirs, tentatives, TOI, TOI PP) — c'est la
 garantie de parité train/serve (cf. audit P0-1).
 
+Les 12 features xG (moteur v2, 2026-10) viennent d'une table xG match par match
+(`load_xg_table`) : logs MoneyPuck jusqu'en 2024-25, puis reconstruction en saison à
+partir des tirs MoneyPuck et des présences de l'API NHL (parité 0,976-0,9996,
+nhl/data/xg_nhlapi.py).
+
 Les agrégats de saison MoneyPuck (`nhl/data/*_all.csv`) servent uniquement de
 priors de la SAISON PRÉCÉDENTE (aucune fuite) ; s'ils manquent, les colonnes
 correspondantes valent NaN (gérées nativement par les modèles de boosting).
@@ -20,10 +25,12 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from nhl.data.gamelog_schema import GAMELOG_COLUMNS, clean_team
+from nhl.data.gamelog_schema import GAMELOG_COLUMNS, XG_COLUMNS, clean_team
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-FEATURES_VERSION = "p1-2026-10"
+# p2 : + 12 features xG (moteur v2, 2026-10-08) ; p1 : 54 / 56 features sans xG en saison
+FEATURES_VERSION = "p2-2026-10"
+FINISH_K = 15.0  # finition shrinkée : (buts − xG) / (xG + 15), cumulés sur la carrière avant le match
 
 # Priors de shrinkage (en matchs ou en heures) — volontairement simples et documentés
 SH_PCT_PRIOR, SH_PCT_K = 0.095, 60.0       # Beta : ~60 tirs de poids vers 9,5 %
@@ -115,13 +122,73 @@ def load_season_priors(data_dir: str = DATA_DIR) -> Dict[str, pd.DataFrame]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Construction des features
 # ─────────────────────────────────────────────────────────────────────────────
-def build_features(logs: pd.DataFrame, priors: Optional[Dict[str, pd.DataFrame]] = None) -> pd.DataFrame:
+def _xg_features(df: pd.DataFrame, xg: pd.DataFrame) -> pd.DataFrame:
+    """Les 12 features xG d'un match, calculées sur les seuls matchs antérieurs (shift 1).
+
+    Portage de l'étude du 2026-10-08 (combo_members.add_xg_full).
+
+    Args:
+        df: table en cours de construction (playerId, gameId, gameDate, team, opp, g).
+        xg: table xG (playerId, gameId + XG_COLUMNS) ; les matchs à venir n'y figurent pas.
+
+    Returns:
+        DataFrame des XG_FEATURES, même index que df.
+    """
+    m = df[["playerId", "gameId", "gameDate", "team", "opp", "g"]].merge(
+        xg[["playerId", "gameId"] + XG_COLUMNS], on=["playerId", "gameId"], how="left")
+    m.index = df.index
+    m = m.sort_values(["playerId", "gameDate", "gameId"], kind="mergesort")
+    vals = m[XG_COLUMNS].astype(float)
+    pid = m["playerId"]
+    sh = vals.groupby(pid, sort=False).shift(1)
+    g = sh.groupby(pid, sort=False)
+    r10 = g.rolling(10, min_periods=1).mean().reset_index(level=0, drop=True).reindex(m.index)
+    r20 = g.rolling(20, min_periods=1).sum().reset_index(level=0, drop=True).reindex(m.index)
+    f = pd.DataFrame(index=m.index)
+    f["ixg_l10"] = r10["I_F_xGoals"]
+    f["hd_shots_l10"] = r10["I_F_highDangerShots"]
+    f["pp_ixg_l10"] = r10["pp_ixg"]
+    hours = (r20["icetime"] / 3600.0).replace(0, np.nan)
+    f["ixg60_l20"] = r20["I_F_xGoals"] / hours
+    f["hdxg60_l20"] = r20["I_F_highDangerxGoals"] / hours
+    f["ixg_ewm"] = sh["I_F_xGoals"].groupby(pid, sort=False).transform(
+        lambda s: s.ewm(halflife=8, ignore_na=True).mean())
+    # Finition (buts − xG cumulés sur la carrière, shrinkés) : talent de finisseur
+    goals = m["g"].astype(float).fillna(0.0)
+    xgs = vals["I_F_xGoals"].fillna(0.0)
+    cg = goals.groupby(pid, sort=False).cumsum() - goals
+    cx = xgs.groupby(pid, sort=False).cumsum() - xgs
+    f["finish_shrunk"] = (cg - cx) / (cx + FINISH_K)
+    # Sur la glace : occasions créées par la ligne, part de xG à 5 contre 5, départs en zone offensive
+    f["onice_xgf_l10"] = r10["OnIce_F_xGoals"]
+    f["ev_xgf_pct_l20"] = r20["ev_onice_xgf"] / (r20["ev_onice_xgf"] + r20["ev_onice_xga"]).replace(0, np.nan)
+    f["oz_share_l20"] = r20["I_F_oZoneShiftStarts"] / (
+        r20["I_F_oZoneShiftStarts"] + r20["I_F_dZoneShiftStarts"]).replace(0, np.nan)
+    # Contexte d'équipe : xG pour (équipe) et xG contre (adversaire), 10 matchs précédents
+    tg = (m.assign(x=vals["I_F_xGoals"]).groupby(["gameId", "gameDate", "team", "opp"], sort=False)["x"]
+            .sum(min_count=1).reset_index(name="xgf"))
+    tg = tg.merge(tg[["gameId", "team", "xgf"]].rename(columns={"team": "opp", "xgf": "xga"}),
+                  on=["gameId", "opp"], how="left").sort_values(["team", "gameDate", "gameId"], kind="mergesort")
+    for c in ("xgf", "xga"):
+        tg[f"t_{c}_l10"] = tg.groupby("team", sort=False)[c].transform(
+            lambda s: s.shift(1).rolling(10, min_periods=1).mean())
+    key = m[["gameId", "team", "opp"]]
+    f["team_xgf_l10"] = key.merge(tg[["gameId", "team", "t_xgf_l10"]], on=["gameId", "team"], how="left")[
+        "t_xgf_l10"].to_numpy()
+    f["opp_xga_l10"] = key.merge(tg[["gameId", "team", "t_xga_l10"]].rename(columns={"team": "opp"}),
+                                 on=["gameId", "opp"], how="left")["t_xga_l10"].to_numpy()
+    return f.reindex(df.index)[XG_FEATURES]
+
+
+def build_features(logs: pd.DataFrame, priors: Optional[Dict[str, pd.DataFrame]] = None,
+                   xg: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """Construit la table de features (une ligne par joueur x match).
 
     Args:
         logs: logs de match au schéma GAMELOG_COLUMNS. Les matchs à venir sont des
             lignes dont les colonnes de stats (g, a1, sog...) sont NaN.
         priors: sortie de load_season_priors() (optionnel).
+        xg: sortie de load_xg_table() (optionnel) ; sans elle, les XG_FEATURES valent NaN.
 
     Returns:
         DataFrame avec identifiants, features, cibles (`target_but`, `target_ast`,
@@ -235,6 +302,13 @@ def build_features(logs: pd.DataFrame, priors: Optional[Dict[str, pd.DataFrame]]
         if c not in df:
             df[c] = np.nan
 
+    # ── xG en saison : individuel, sur la glace, équipe / adversaire (moteur v2) ──
+    if xg is not None and not xg.empty:
+        df = pd.concat([df, _xg_features(df, xg)], axis=1)
+    else:
+        for c in XG_FEATURES:
+            df[c] = np.nan
+
     # ── Cibles ──
     df["target_but"] = np.where(upcoming, np.nan, (df["g"] > 0).astype(float))
     df["target_ast"] = np.where(upcoming, np.nan, (df["a"] > 0).astype(float))
@@ -247,6 +321,8 @@ def build_features(logs: pd.DataFrame, priors: Optional[Dict[str, pd.DataFrame]]
 
 
 # Listes de features par marché (ordre figé, enregistré avec le modèle)
+XG_FEATURES = ["ixg_l10", "hd_shots_l10", "pp_ixg_l10", "ixg60_l20", "hdxg60_l20", "ixg_ewm", "finish_shrunk",
+               "onice_xgf_l10", "ev_xgf_pct_l20", "oz_share_l20", "team_xgf_l10", "opp_xga_l10"]
 _COMMON = [
     "sog_l5", "sog_l10", "sog_l20", "att_l10", "att_l20", "toi_l5", "toi_l10", "toi_l20",
     "pp_toi_l10", "pp_sog_l10", "sog_ewm", "att_ewm", "toi_ewm", "pp_toi_ewm",
@@ -258,11 +334,14 @@ _COMMON = [
     "prev_ixg60", "prev_sog60", "prev_pp_share", "prev_toi_pg_h", "prev_onice_xgf60",
     "opp_prev_xga60", "opp_prev_gsax60",
 ]
-FEATURES: Dict[str, List[str]] = {
+# Moteur p1 (prod jusqu'au 2026-10-08), figé : phases historiques du simulateur et moteur m0
+FEATURES_P1: Dict[str, List[str]] = {
     "but": _COMMON + ["g_l10", "g_l20", "std_g_pg", "car_g60", "prev_g60", "exp_g_l20", "exp_g_ewm", "is_C"],
     "ast": _COMMON + ["a_l10", "a_l20", "a1_l10", "a_ewm", "std_a_pg", "std_a1_pg", "car_a60", "prev_a60",
                       "is_D", "is_C"],
 }
+# Moteur v2 (piste C5) : + 12 features xG, aux deux marchés
+FEATURES: Dict[str, List[str]] = {m: FEATURES_P1[m] + XG_FEATURES for m in FEATURES_P1}
 
 
 def load_all_gamelogs(gamelog_dir: Optional[str] = None) -> pd.DataFrame:
@@ -283,9 +362,31 @@ def load_all_gamelogs(gamelog_dir: Optional[str] = None) -> pd.DataFrame:
     logs = pd.concat(frames, ignore_index=True)
     return logs.drop_duplicates(["playerId", "gameId"], keep="last")
 
-# Piste F : features additionnelles (évaluées dans nhl/sim/phases.py avant adoption)
+
+def load_xg_table(gamelog_dir: Optional[str] = None) -> pd.DataFrame:
+    """Table xG match par match : logs MoneyPuck 2008-2024 (mp_xg.parquet) + saisons reconstruites (xg_*.parquet).
+
+    En cas de recouvrement (même playerId, gameId), la reconstruction l'emporte. Table vide si
+    aucun fichier n'existe (les features xG valent alors NaN ; inference / train_models refusent
+    de servir ou d'entraîner le moteur v2 sans l'historique).
+    """
+    gamelog_dir = gamelog_dir or os.path.join(DATA_DIR, "gamelogs")
+    frames = []
+    mp = os.path.join(gamelog_dir, "mp_xg.parquet")
+    if os.path.exists(mp):
+        frames.append(pd.read_parquet(mp))
+    for f in sorted(os.listdir(gamelog_dir)) if os.path.isdir(gamelog_dir) else []:
+        if f.startswith("xg_") and f.endswith(".parquet"):
+            frames.append(pd.read_parquet(os.path.join(gamelog_dir, f)))
+    if not frames:
+        return pd.DataFrame(columns=["playerId", "gameId"] + XG_COLUMNS)
+    xg = pd.concat([f[["playerId", "gameId"] + XG_COLUMNS] for f in frames], ignore_index=True)
+    return xg.drop_duplicates(["playerId", "gameId"], keep="last").reset_index(drop=True)
+
+
+# Piste F : features additionnelles (évaluées dans nhl/sim/phases.py avant adoption), sur le socle p1
 FEATURES_EXTRA = ["team_pp_share", "opp_pp_ga_pg", "sog_x_opp_leak", "pp_x_opp_pk"]
-FEATURES_V2: Dict[str, List[str]] = {m: FEATURES[m] + FEATURES_EXTRA for m in FEATURES}
+FEATURES_V2: Dict[str, List[str]] = {m: FEATURES_P1[m] + FEATURES_EXTRA for m in FEATURES_P1}
 # Piste G : marchés candidats (même socle que le buteur / passeur)
 FEATURES_G: Dict[str, List[str]] = {
     "pts": FEATURES_V2["ast"] + ["g_l10", "g_l20", "std_g_pg", "car_g60", "exp_g_l20"],

@@ -49,8 +49,12 @@ REPORT_MD = os.path.join(REPORT_DIR, "roi_by_phase.md")
 
 from nhl.sim.version import EXEC_HAIRCUT  # noqa: E402  marge Winamax / ARJEL vs médiane US
 VAL_END = pd.Timestamp("2024-07-01")  # validation = saison 2023-24, test = 2024-25
+# Fin du contrôle : à partir de 2025-26, seules les cotes buteur ont été achetées (période « new »,
+# hors simulateur, qui ne rejoue que les soirées où les deux marchés sont cotés)
+CTL_END = pd.Timestamp("2025-07-01")
 RETRAIN = {
-    "quarterly": ["2023-10-01", "2024-01-01", "2024-04-01", "2024-10-01", "2025-01-01"],
+    "quarterly": ["2023-10-01", "2024-01-01", "2024-04-01", "2024-10-01", "2025-01-01",
+                  "2025-04-01", "2025-10-01", "2026-01-01", "2026-04-01"],
     "monthly": [f"{y}-{m:02d}-01" for y, m in
                 [(2023, 10), (2023, 11), (2023, 12), (2024, 1), (2024, 2), (2024, 3), (2024, 4),
                  (2024, 10), (2024, 11), (2024, 12), (2025, 1)]],
@@ -212,8 +216,17 @@ def walk_forward_predictions(spec: PhaseSpec, df: pd.DataFrame, odds: pd.DataFra
         feats = spec.features[market]
         target = f"target_{market}"
         mo = odds[odds.market == market]
-        test = df.merge(mo, on=["date", "playerId"], how="inner", suffixes=("", "_odds"))
-        test = test[test["date"] >= dates[0]]
+        if spec.extra.get("all_eligible"):
+            # Toutes les lignes éligibles (cotées ou non) + les lignes cotées : la qualité du modèle
+            # se mesure aussi là où il n'y a pas de cotes
+            base = df[df["date"] >= dates[0]]
+            quoted = base[["date", "playerId"]].merge(mo[["date", "playerId"]].assign(_q=1),
+                                                      on=["date", "playerId"], how="left")["_q"].notna().to_numpy()
+            keep = spec.eligible(base, market).to_numpy() | quoted
+            test = base[keep].merge(mo, on=["date", "playerId"], how="left", suffixes=("", "_odds"))
+        else:
+            test = df.merge(mo, on=["date", "playerId"], how="inner", suffixes=("", "_odds"))
+            test = test[test["date"] >= dates[0]]
         test["eligible"] = spec.eligible(test, market).to_numpy()
         for i, start in enumerate(dates[:-1]):
             end = dates[i + 1]
@@ -262,7 +275,8 @@ def run_betting(spec: PhaseSpec, preds: pd.DataFrame, price_col: Optional[str]) 
 def summarize(bets: pd.DataFrame, preds: pd.DataFrame) -> Dict[str, Dict]:
     """Métriques par marché et par période (validation / test / total)."""
     out = {}
-    periods = {"val": lambda d: d < VAL_END, "test": lambda d: d >= VAL_END, "all": lambda d: d == d}
+    periods = {"val": lambda d: d < VAL_END, "test": lambda d: (d >= VAL_END) & (d < CTL_END),
+               "new": lambda d: d >= CTL_END, "all": lambda d: d == d}
     for market in ("but", "ast", "total"):
         for per, f in periods.items():
             b = bets[f(bets["date"])]
@@ -342,8 +356,10 @@ def write_report(spec: PhaseSpec, results: Dict[str, Dict], buckets: pd.DataFram
     lines.append("| Marché | Période | Paris | Mise (U) | Profit (U) | **ROI** | IC 95 % | Edge marché (Pinnacle) | Couv. Pinnacle | LL modèle | LL Pinnacle | AUC modèle | AUC Pinnacle | ECE bande |")
     lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for market in ("but", "ast", "total"):
-        for per in ("val", "test", "all"):
+        for per in ("val", "test", "new", "all"):
             r = ex[f"{market}_{per}"]
+            if per == "new" and not r["n_bets"] and np.isnan(r.get("ll_model", np.nan)):
+                continue  # période 2025-26 absente (phases sur oct. 2023 -> janv. 2025)
             ci = (f"[{r['roi_ci_lo'] * 100:+.0f} ; {r['roi_ci_hi'] * 100:+.0f}]"
                   if not np.isnan(r.get("roi_ci_lo", np.nan)) else "—")
             lines.append(

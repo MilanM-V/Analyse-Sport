@@ -154,9 +154,9 @@ def p0() -> PhaseSpec:
 # P1a — données & features à parité train/serve (même modèle que la baseline)
 # ─────────────────────────────────────────────────────────────────────────────
 def _p1_load() -> pd.DataFrame:
-    """Features de nhl.core.features sur tous les gamelogs (MoneyPuck 2008-2024 + API NHL 2025)."""
-    from nhl.core.features import build_features, load_all_gamelogs, load_season_priors
-    df = build_features(load_all_gamelogs(), load_season_priors())
+    """Features de nhl.core.features sur tous les gamelogs (MoneyPuck 2008-2024 + API NHL 2025+), xG compris."""
+    from nhl.core.features import build_features, load_all_gamelogs, load_season_priors, load_xg_table
+    df = build_features(load_all_gamelogs(), load_season_priors(), load_xg_table())
     df = df[df["season"] >= 2009]  # 2008 = rodage des fenêtres glissantes
     std = _std_stats()[["playerId", "gameId", "std_gp", "G_GP", "A_GP", "ATOI_L10"]]
     df = df.drop(columns=["std_gp"]).merge(std, on=["playerId", "gameId"], how="left")
@@ -168,8 +168,9 @@ def _p1_load() -> pd.DataFrame:
 
 
 def _p1_features() -> Dict[str, List[str]]:
-    from nhl.core.features import FEATURES
-    return {m: list(FEATURES[m]) for m in FEATURES}
+    """Features du moteur p1 (figées) : les phases historiques restent rejouables après le moteur v2."""
+    from nhl.core.features import FEATURES_P1
+    return {m: list(FEATURES_P1[m]) for m in FEATURES_P1}
 
 
 def p1a() -> PhaseSpec:
@@ -373,7 +374,7 @@ def _model_variant(name: str, label: str, feature_set: str = "base", algos: tupl
         import json
         from nhl.core import features as F
         from nhl.core.ensemble_model import TemporalCalibratedGBM
-        feats = {"base": F.FEATURES, "v2": F.FEATURES_V2}[feature_set]
+        feats = {"base": F.FEATURES_P1, "v2": F.FEATURES_V2}[feature_set]
         params = {}
         if tuned:
             with open(os.path.join(NHL_DIR, "config", "tuned_gbm_params.json"), encoding="utf-8") as f:
@@ -593,3 +594,37 @@ def q_final() -> PhaseSpec:
 
 
 PHASES["q_final"] = q_final
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moteur v2 (2026-10-08) : walk-forward complet du moteur actuel tel que servi (m0, harnais
+# trié par date) et du nouveau moteur (v2), avec la stratégie, l'éligibilité et le prix de la
+# prod. Prédictions sur TOUTES les lignes éligibles (cotées ou non) : la qualité se mesure aussi
+# là où il n'y a pas de cotes (passes 2025-26, fin de 2024-25). Paramètres figés ici.
+# ─────────────────────────────────────────────────────────────────────────────
+def _engine_phase(name: str, label: str, features: Dict[str, List[str]], **model_kw) -> PhaseSpec:
+    from nhl.config.settings import cfg
+    from nhl.core.ensemble_model import TemporalCalibratedGBM
+    spec = _q_phase(name, label, {}, make_eligible(cfg.thresholds.passeurs.home_only, False), exec_is_prod=True)
+    spec.extra.pop("reuse_preds", None)
+    spec.extra["devig"] = cfg.betting.devig_method
+    spec.extra["all_eligible"] = True
+    spec.features = {m: list(features[m]) for m in ("but", "ast")}
+    spec.model_factory = lambda m: TemporalCalibratedGBM(algos=("lgbm", "xgb", "cat"), calib_frac=0.15, **model_kw)
+    return spec
+
+
+def m0() -> PhaseSpec:
+    """Moteur p1 tel que servi par le bot jusqu'au 2026-10-08 (LGBM + XGB + CatBoost, isotonique)."""
+    from nhl.core.features import FEATURES_P1
+    return _engine_phase("m0", "moteur actuel tel que servi : LGBM + XGB + CatBoost, isotonique", FEATURES_P1)
+
+
+def v2() -> PhaseSpec:
+    """Moteur v2 : C2 (Platt) + C4 (3 réseaux de neurones, logits 50/50) + C5 (12 features xG)."""
+    from nhl.core.features import FEATURES
+    return _engine_phase("v2", "moteur v2 : + calibration Platt, + 3 réseaux de neurones, + 12 features xG",
+                         FEATURES, calibration="platt", mlp_nets=3, mlp_weight=0.5)
+
+
+PHASES.update({"m0": m0, "v2": v2})

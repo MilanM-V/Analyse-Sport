@@ -22,6 +22,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -34,18 +35,27 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from nhl.core.betting import BetParams  # noqa: E402
-from nhl.scripts.simulate_roi import REPORT_DIR, VAL_END  # noqa: E402
+from nhl.scripts.simulate_roi import CTL_END, REPORT_DIR, VAL_END  # noqa: E402
 from nhl.sim.phases import p2_eligible  # noqa: E402
 from nhl.sim.real_price import add_real_price, describe as describe_price  # noqa: E402
 from nhl.sim.version import current_version  # noqa: E402
 
 HTML = os.path.join(ROOT, "simulateur.html")
-def load_preds(src: str) -> pd.DataFrame:
-    """Prédictions walk-forward avec l'éligibilité de prod et le prix réaliste (`real_price`)."""
+def load_preds(src: str, end: Optional[pd.Timestamp] = CTL_END) -> pd.DataFrame:
+    """Prédictions walk-forward avec l'éligibilité de prod et le prix réaliste (`real_price`).
+
+    Args:
+        src: nom de la phase (fichier nhl/reports/preds_<src>.parquet).
+        end: date de fin exclue. Défaut : fin du contrôle (CTL_END). Le simulateur ne rejoue que
+            les soirées où les deux marchés sont cotés (oct. 2023 -> janv. 2025) ; à partir de
+            2025-26, seules les cotes buteur existent. None = toutes les dates (engine_report).
+    """
     from nhl.config.settings import cfg
     from nhl.scripts.simulate_roi import add_prod_price, apply_devig
     p = pd.read_parquet(os.path.join(REPORT_DIR, f"preds_{src}.parquet"))
     p["date"] = pd.to_datetime(p["date"])
+    if end is not None:
+        p = p[p["date"] < end].reset_index(drop=True)
     # Même no-vig Pinnacle que la prod ; prix = cote Winamax reconstituée (prod_price reste
     # la cote estimée de la prod, gardée pour comparaison)
     p = apply_devig(add_prod_price(p), getattr(cfg.betting, "devig_method", "multiplicative"))
@@ -102,10 +112,10 @@ def config_nights(scenario: dict, all_dates: list) -> list:
 
 def export() -> str:
     """Rejoue chaque configuration, injecte les données dans simulateur.html ; renvoie la version."""
-    from nhl.scripts.search_config import SCENARIOS_JSON, load_engine
+    from nhl.scripts.search_config import PROD_ENGINE, SCENARIOS_JSON, load_engine
     with open(SCENARIOS_JSON, encoding="utf-8") as f:
         scen = json.load(f)
-    base = load_engine("p1b_ens")
+    base = load_engine(PROD_ENGINE)
     priced = base[base["eligible"] & base["real_price"].notna()]
     all_dates = sorted(priced["date"].unique())
     params = BetParams.from_config()

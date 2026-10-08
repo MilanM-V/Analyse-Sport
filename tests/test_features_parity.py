@@ -64,3 +64,47 @@ def test_schema_rejects_missing_columns():
     with pytest.raises(ValueError):
         build_features(pd.DataFrame({"playerId": [1]}))
     assert len(GAMELOG_COLUMNS) == 20
+
+
+# ── Features xG (moteur v2) ─────────────────────────────────────────────────
+def _synthetic_xg(logs: pd.DataFrame, seed: int = 1) -> pd.DataFrame:
+    """Table xG au schéma XG_COLUMNS pour chaque joueur-match des logs synthétiques."""
+    from nhl.data.gamelog_schema import XG_COLUMNS
+    rng = np.random.default_rng(seed)
+    xg = logs[["playerId", "gameId"]].copy()
+    for c in XG_COLUMNS:
+        xg[c] = rng.uniform(0, 3, len(xg)) if c != "icetime" else rng.uniform(600, 1300, len(xg))
+    return xg
+
+
+def test_xg_features_match_between_training_and_serving():
+    from nhl.core.features import XG_FEATURES
+    logs = _synthetic_logs()
+    xg = _synthetic_xg(logs)
+    last_gid = logs["gameId"].max()
+    full = build_features(logs, xg=xg)
+    up = logs.copy()
+    up.loc[up["gameId"] == last_gid, STAT_COLS] = np.nan
+    serve = build_features(up, xg=xg[xg["gameId"] != last_gid])  # le match à venir n'a pas encore d'xG
+    a = full[full.gameId == last_gid].set_index("playerId")[XG_FEATURES].sort_index()
+    b = serve[serve.gameId == last_gid].set_index("playerId")[XG_FEATURES].sort_index()
+    assert a.notna().all().all()
+    pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
+    assert set(XG_FEATURES) <= set(FEATURES["but"]) and set(XG_FEATURES) <= set(FEATURES["ast"])
+    assert build_features(logs)[XG_FEATURES].isna().all().all()  # sans table xG : NaN
+
+
+def test_xg_features_have_no_future_leakage():
+    from nhl.core.features import XG_FEATURES
+    from nhl.data.gamelog_schema import XG_COLUMNS
+    logs = _synthetic_logs()
+    xg = _synthetic_xg(logs)
+    gid = logs["gameId"].unique()[10]
+    alt = xg.copy()
+    alt.loc[alt["gameId"] >= gid, XG_COLUMNS] = alt.loc[alt["gameId"] >= gid, XG_COLUMNS] * 3 + 1
+    f1, f2 = build_features(logs, xg=xg), build_features(logs, xg=alt)
+    a = f1[f1.gameId <= gid].sort_values(["playerId", "gameId"])[XG_FEATURES].reset_index(drop=True)
+    b = f2[f2.gameId <= gid].sort_values(["playerId", "gameId"])[XG_FEATURES].reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b)
+    c = f2[f2.gameId > gid].sort_values(["playerId", "gameId"])[XG_FEATURES].reset_index(drop=True)
+    assert not np.allclose(c.to_numpy(), f1[f1.gameId > gid].sort_values(["playerId", "gameId"])[XG_FEATURES].to_numpy())

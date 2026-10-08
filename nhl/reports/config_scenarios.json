@@ -3,15 +3,15 @@
     "selection": "validation 2023-24",
     "control": "oct. 2024 → janv. 2025",
     "price": "cote Winamax reconstituée : Pinnacle « Oui » × 1,00 quand Pinnacle cote, sinon médiane US × 1,09 à 1,13 (buteur) ; 0,58 à 0,98 (passes), d'après 841 vraies cotes Winamax (15 matchs, 2026-10-01 → 2026-10-03)",
-    "n_configs": 672,
+    "n_configs": 192,
     "counts": {
       "val": {
         "nights": 160,
-        "games": 1086
+        "games": 1158
       },
       "ctl": {
         "nights": 86,
-        "games": 579
+        "games": 617
       }
     },
     "rules": {
@@ -27,8 +27,8 @@
       "rule": "config de settings.toml",
       "manual": false,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
         "markets": [
           "but",
           "ast"
@@ -42,39 +42,39 @@
         "max_bets_per_game": 1
       },
       "val": {
-        "n": 445.0,
-        "per_game": 0.4097605893186004,
-        "profit": 120.8592582070707,
-        "profit_season": 135.9666654829545,
-        "roi": 0.24220292225865872,
-        "profit_ci_lo": 54.74773968479436,
-        "profit_ci_hi": 188.6305968389249,
-        "max_dd": 9.0,
-        "night_std": 2.938185159233732,
-        "worst_night": -6.0,
-        "sharpe_night": 0.3092780671990809,
-        "ev_pin": -0.09308012803370111
+        "n": 455.0,
+        "per_game": 0.39291882556131263,
+        "profit": 65.26338428932179,
+        "profit_season": 73.42130732548702,
+        "roi": 0.1266021033740481,
+        "profit_ci_lo": -10.121426880411256,
+        "profit_ci_hi": 139.62436348980873,
+        "max_dd": 34.832777777777764,
+        "night_std": 3.3197117815710833,
+        "worst_night": -8.44,
+        "sharpe_night": 0.1404239468094411,
+        "ev_pin": -0.09902765333328181
       },
       "ctl": {
-        "n": 171.0,
-        "per_game": 0.29533678756476683,
-        "profit": 1.5995630411255366,
-        "profit_season": 3.3479226442162395,
-        "roi": 0.011425450293753832,
-        "profit_ci_lo": -27.379279592803034,
-        "profit_ci_hi": 36.33603216314923,
-        "max_dd": 13.857817911255413,
-        "night_std": 1.9512120845467738,
-        "worst_night": -4.0,
-        "sharpe_night": 0.012055576164786242,
-        "ev_pin": -0.10717014586872613
+        "n": 108.0,
+        "per_game": 0.17504051863857376,
+        "profit": 4.41013392857143,
+        "profit_season": 9.230512873754154,
+        "roi": 0.049832021791767565,
+        "profit_ci_lo": -22.474292410714288,
+        "profit_ci_hi": 30.873926339285713,
+        "max_dd": 13.287142857142857,
+        "night_std": 1.840512218978796,
+        "worst_night": -3.5,
+        "sharpe_night": 0.04131284274445619,
+        "ev_pin": -0.10705834798965887
       },
       "robustness": {
         "neighbors": 6,
-        "neighbors_median_val_profit_season": 114.49064466244961,
-        "rank_among_neighbors": 3,
-        "p_value_no_edge": 0.0001999600079984003,
-        "p_value_bonferroni": 0.13437312537492502
+        "neighbors_median_val_profit_season": 61.946332060988595,
+        "rank_among_neighbors": 4,
+        "p_value_no_edge": 0.0007998400319936012,
+        "p_value_bonferroni": 0.15356928614277143
       }
     },
     "prudent": {
@@ -82,54 +82,53 @@
       "rule": "meilleur ratio gain / écart-type par soirée, drawdown ≤ 15 U",
       "manual": false,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
         "markets": [
-          "but",
-          "ast"
+          "but"
         ],
-        "ev_min": 0.04,
+        "ev_min": 0.06,
         "blend_w": {
-          "but": 0.35,
-          "ast": 0.6
+          "but": 0.65,
+          "ast": 0.9
         },
         "cote_max_but": 8.0,
-        "max_bets_per_game": 1
+        "max_bets_per_game": 0
       },
       "val": {
-        "n": 298.0,
-        "per_game": 0.27440147329650094,
-        "profit": 82.16445798813255,
-        "profit_season": 92.43501523664912,
-        "roi": 0.36927846286801147,
-        "profit_ci_lo": 40.96998590274667,
-        "profit_ci_hi": 128.28790541848593,
-        "max_dd": 5.071666666666665,
-        "night_std": 2.013323548027713,
-        "worst_night": -4.0,
-        "sharpe_night": 0.33179154147138473,
-        "ev_pin": -0.08093477947096701
+        "n": 180.0,
+        "per_game": 0.15544041450777202,
+        "profit": 27.148934884559885,
+        "profit_season": 30.542551745129874,
+        "roi": 0.23105476497497776,
+        "profit_ci_lo": -9.643757237554114,
+        "profit_ci_hi": 66.84358034586937,
+        "max_dd": 11.135,
+        "night_std": 2.091486989951752,
+        "worst_night": -2.0,
+        "sharpe_night": 0.14750778999361477,
+        "ev_pin": -0.10074459846980038
       },
       "ctl": {
-        "n": 108.0,
-        "per_game": 0.18652849740932642,
-        "profit": 0.5970183982683976,
-        "profit_season": 1.2495733917245533,
-        "roi": 0.008844717011383669,
-        "profit_ci_lo": -20.742114718614722,
-        "profit_ci_hi": 23.773717160443695,
-        "max_dd": 11.391151244588745,
-        "night_std": 1.5659386300064317,
-        "worst_night": -2.0,
-        "sharpe_night": 0.006931868056969574,
-        "ev_pin": -0.09485333700968702
+        "n": 51.0,
+        "per_game": 0.08265802269043761,
+        "profit": -2.3348660714285723,
+        "profit_season": -4.886928986710965,
+        "roi": -0.08810815363881405,
+        "profit_ci_lo": -17.327455357142856,
+        "profit_ci_hi": 14.033915178571425,
+        "max_dd": 14.732142857142858,
+        "night_std": 1.4150657528315906,
+        "worst_night": -1.5,
+        "sharpe_night": -0.04714301017474544,
+        "ev_pin": -0.13646057545131426
       },
       "robustness": {
-        "neighbors": 5,
-        "neighbors_median_val_profit_season": 97.29945891527653,
-        "rank_among_neighbors": 4,
-        "p_value_no_edge": 0.0001999600079984003,
-        "p_value_bonferroni": 0.13437312537492502
+        "neighbors": 6,
+        "neighbors_median_val_profit_season": 23.187864245129866,
+        "rank_among_neighbors": 3,
+        "p_value_no_edge": 0.021195760847830435,
+        "p_value_bonferroni": 1.0
       }
     },
     "equilibre": {
@@ -137,54 +136,54 @@
       "rule": "meilleur gain par saison, drawdown ≤ 20 U et ROI ≥ 10 %",
       "manual": false,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
         "markets": [
           "but",
           "ast"
         ],
-        "ev_min": 0.08,
+        "ev_min": 0.06,
         "blend_w": {
-          "but": 0.65,
-          "ast": 0.9
+          "but": 0.5,
+          "ast": 0.75
         },
-        "cote_max_but": 15.0,
+        "cote_max_but": 8.0,
         "max_bets_per_game": 0
       },
       "val": {
-        "n": 700.0,
-        "per_game": 0.6445672191528545,
-        "profit": 151.9311453357466,
-        "profit_season": 170.92253850271493,
-        "roi": 0.19110835891288883,
-        "profit_ci_lo": 74.61601871664615,
-        "profit_ci_hi": 231.95111507431145,
-        "max_dd": 11.505000000000003,
-        "night_std": 3.535038181305286,
-        "worst_night": -6.55,
-        "sharpe_night": 0.323147694600808,
-        "ev_pin": -0.09241195338114756
+        "n": 540.0,
+        "per_game": 0.46632124352331605,
+        "profit": 68.14772798800817,
+        "profit_season": 76.66619398650919,
+        "roi": 0.13643188786388022,
+        "profit_ci_lo": 0.02039988711000735,
+        "profit_ci_hi": 141.0004136535459,
+        "max_dd": 17.405,
+        "night_std": 3.1185045193744556,
+        "worst_night": -8.89,
+        "sharpe_night": 0.16940073611094772,
+        "ev_pin": -0.09359666964639032
       },
       "ctl": {
-        "n": 216.0,
-        "per_game": 0.37305699481865284,
-        "profit": -7.1104369588744625,
-        "profit_season": -14.882309913923294,
-        "roi": -0.0404002099936049,
-        "profit_ci_lo": -39.55103311011905,
-        "profit_ci_hi": 30.02866724161254,
-        "max_dd": 20.962817911255414,
-        "night_std": 2.0977812955066413,
-        "worst_night": -3.4699999999999998,
-        "sharpe_night": -0.049845639113661175,
-        "ev_pin": -0.10415976679079103
+        "n": 100.0,
+        "per_game": 0.1620745542949757,
+        "profit": -5.799866071428574,
+        "profit_season": -12.139254568106317,
+        "roi": -0.08854757360959654,
+        "profit_ci_lo": -26.855709821428572,
+        "profit_ci_hi": 15.90380691964284,
+        "max_dd": 18.67214285714286,
+        "night_std": 1.4877262374848617,
+        "worst_night": -2.5,
+        "sharpe_night": -0.0749707057513301,
+        "ev_pin": -0.10360519801894816
       },
       "robustness": {
-        "neighbors": 6,
-        "neighbors_median_val_profit_season": 124.81329022405394,
-        "rank_among_neighbors": 1,
+        "neighbors": 7,
+        "neighbors_median_val_profit_season": 72.27768663583184,
+        "rank_among_neighbors": 3,
         "p_value_no_edge": 0.0001999600079984003,
-        "p_value_bonferroni": 0.13437312537492502
+        "p_value_bonferroni": 0.03839232153569286
       }
     },
     "agressif": {
@@ -192,65 +191,11 @@
       "rule": "meilleur gain par saison, sans contrainte de drawdown",
       "manual": false,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "m0",
+        "engine_label": "Moteur p1 : LGBM + XGB + CatBoost, isotonique (prod jusqu'au 2026-10-08)",
         "markets": [
           "but",
           "ast"
-        ],
-        "ev_min": 0.08,
-        "blend_w": {
-          "but": 0.65,
-          "ast": 0.9
-        },
-        "cote_max_but": 15.0,
-        "max_bets_per_game": 0
-      },
-      "val": {
-        "n": 700.0,
-        "per_game": 0.6445672191528545,
-        "profit": 151.9311453357466,
-        "profit_season": 170.92253850271493,
-        "roi": 0.19110835891288883,
-        "profit_ci_lo": 74.61601871664615,
-        "profit_ci_hi": 231.95111507431145,
-        "max_dd": 11.505000000000003,
-        "night_std": 3.535038181305286,
-        "worst_night": -6.55,
-        "sharpe_night": 0.323147694600808,
-        "ev_pin": -0.09241195338114756
-      },
-      "ctl": {
-        "n": 216.0,
-        "per_game": 0.37305699481865284,
-        "profit": -7.1104369588744625,
-        "profit_season": -14.882309913923294,
-        "roi": -0.0404002099936049,
-        "profit_ci_lo": -39.55103311011905,
-        "profit_ci_hi": 30.02866724161254,
-        "max_dd": 20.962817911255414,
-        "night_std": 2.0977812955066413,
-        "worst_night": -3.4699999999999998,
-        "sharpe_night": -0.049845639113661175,
-        "ev_pin": -0.10415976679079103
-      },
-      "robustness": {
-        "neighbors": 6,
-        "neighbors_median_val_profit_season": 124.81329022405394,
-        "rank_among_neighbors": 1,
-        "p_value_no_edge": 0.0001999600079984003,
-        "p_value_bonferroni": 0.13437312537492502
-      }
-    },
-    "buteur": {
-      "label": "Buteur seul",
-      "rule": "meilleur gain par saison parmi les configs buteur seul",
-      "manual": false,
-      "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
-        "markets": [
-          "but"
         ],
         "ev_min": 0.04,
         "blend_w": {
@@ -261,39 +206,93 @@
         "max_bets_per_game": 0
       },
       "val": {
-        "n": 508.0,
-        "per_game": 0.4677716390423573,
-        "profit": 67.25470102813853,
-        "profit_season": 75.66153865665584,
-        "roi": 0.18707844514085822,
-        "profit_ci_lo": 7.555743901064205,
-        "profit_ci_hi": 129.26526096906548,
-        "max_dd": 19.05,
-        "night_std": 2.7043584550863713,
-        "worst_night": -7.455,
-        "sharpe_night": 0.1958189285258043,
-        "ev_pin": -0.08918278858712135
+        "n": 1823.0,
+        "per_game": 1.5742659758203799,
+        "profit": 88.85313897907646,
+        "profit_season": 99.95978135146102,
+        "roi": 0.05684781764496255,
+        "profit_ci_lo": -8.695109207841966,
+        "profit_ci_hi": 194.33100274372416,
+        "max_dd": 42.771748084291175,
+        "night_std": 4.226325451031856,
+        "worst_night": -13.64,
+        "sharpe_night": 0.13563698881485042,
+        "ev_pin": -0.09741376267184287
       },
       "ctl": {
-        "n": 209.0,
-        "per_game": 0.3609671848013817,
-        "profit": 11.565351731601734,
-        "profit_season": 24.206550135910607,
-        "roi": 0.09070864103217045,
-        "profit_ci_lo": -17.542797213203464,
-        "profit_ci_hi": 42.015767890963204,
-        "max_dd": 14.389484577922083,
-        "night_std": 1.9188568921791074,
-        "worst_night": -3.0,
-        "sharpe_night": 0.0913213500747138,
-        "ev_pin": -0.11801061643409698
+        "n": 480.0,
+        "per_game": 0.7779578606158833,
+        "profit": -6.498279220779221,
+        "profit_season": -13.601049531863486,
+        "roi": -0.018593073593073592,
+        "profit_ci_lo": -55.627388731060606,
+        "profit_ci_hi": 47.85139299242422,
+        "max_dd": 29.99762445887446,
+        "night_std": 2.9824415187648916,
+        "worst_night": -5.635,
+        "sharpe_night": -0.027580322524235115,
+        "ev_pin": -0.10156601647821184
       },
       "robustness": {
         "neighbors": 5,
-        "neighbors_median_val_profit_season": 69.44591365665585,
-        "rank_among_neighbors": 2,
-        "p_value_no_edge": 0.0005998800239952009,
-        "p_value_bonferroni": 0.403119376124775
+        "neighbors_median_val_profit_season": 91.75853135146104,
+        "rank_among_neighbors": 1,
+        "p_value_no_edge": 0.0001999600079984003,
+        "p_value_bonferroni": 0.03839232153569286
+      }
+    },
+    "buteur": {
+      "label": "Buteur seul",
+      "rule": "meilleur gain par saison parmi les configs buteur seul",
+      "manual": false,
+      "config": {
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
+        "markets": [
+          "but"
+        ],
+        "ev_min": 0.06,
+        "blend_w": {
+          "but": 0.65,
+          "ast": 0.9
+        },
+        "cote_max_but": 8.0,
+        "max_bets_per_game": 0
+      },
+      "val": {
+        "n": 180.0,
+        "per_game": 0.15544041450777202,
+        "profit": 27.148934884559885,
+        "profit_season": 30.542551745129874,
+        "roi": 0.23105476497497776,
+        "profit_ci_lo": -9.643757237554114,
+        "profit_ci_hi": 66.84358034586937,
+        "max_dd": 11.135,
+        "night_std": 2.091486989951752,
+        "worst_night": -2.0,
+        "sharpe_night": 0.14750778999361477,
+        "ev_pin": -0.10074459846980038
+      },
+      "ctl": {
+        "n": 51.0,
+        "per_game": 0.08265802269043761,
+        "profit": -2.3348660714285723,
+        "profit_season": -4.886928986710965,
+        "roi": -0.08810815363881405,
+        "profit_ci_lo": -17.327455357142856,
+        "profit_ci_hi": 14.033915178571425,
+        "max_dd": 14.732142857142858,
+        "night_std": 1.4150657528315906,
+        "worst_night": -1.5,
+        "sharpe_night": -0.04714301017474544,
+        "ev_pin": -0.13646057545131426
+      },
+      "robustness": {
+        "neighbors": 6,
+        "neighbors_median_val_profit_season": 23.187864245129866,
+        "rank_among_neighbors": 3,
+        "p_value_no_edge": 0.021195760847830435,
+        "p_value_bonferroni": 1.0
       }
     },
     "equilibre_1pm": {
@@ -301,8 +300,8 @@
       "rule": "variante manuelle : Équilibré limité à 1 pari par match",
       "manual": true,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
         "markets": [
           "but",
           "ast"
@@ -316,39 +315,39 @@
         "max_bets_per_game": 1
       },
       "val": {
-        "n": 445.0,
-        "per_game": 0.4097605893186004,
-        "profit": 120.8592582070707,
-        "profit_season": 135.9666654829545,
-        "roi": 0.24220292225865872,
-        "profit_ci_lo": 54.74773968479436,
-        "profit_ci_hi": 188.6305968389249,
-        "max_dd": 9.0,
-        "night_std": 2.938185159233732,
-        "worst_night": -6.0,
-        "sharpe_night": 0.3092780671990809,
-        "ev_pin": -0.09308012803370111
+        "n": 455.0,
+        "per_game": 0.39291882556131263,
+        "profit": 65.26338428932179,
+        "profit_season": 73.42130732548702,
+        "roi": 0.1266021033740481,
+        "profit_ci_lo": -10.121426880411256,
+        "profit_ci_hi": 139.62436348980873,
+        "max_dd": 34.832777777777764,
+        "night_std": 3.3197117815710833,
+        "worst_night": -8.44,
+        "sharpe_night": 0.1404239468094411,
+        "ev_pin": -0.09902765333328181
       },
       "ctl": {
-        "n": 171.0,
-        "per_game": 0.29533678756476683,
-        "profit": 1.5995630411255366,
-        "profit_season": 3.3479226442162395,
-        "roi": 0.011425450293753832,
-        "profit_ci_lo": -27.379279592803034,
-        "profit_ci_hi": 36.33603216314923,
-        "max_dd": 13.857817911255413,
-        "night_std": 1.9512120845467738,
-        "worst_night": -4.0,
-        "sharpe_night": 0.012055576164786242,
-        "ev_pin": -0.10717014586872613
+        "n": 108.0,
+        "per_game": 0.17504051863857376,
+        "profit": 4.41013392857143,
+        "profit_season": 9.230512873754154,
+        "roi": 0.049832021791767565,
+        "profit_ci_lo": -22.474292410714288,
+        "profit_ci_hi": 30.873926339285713,
+        "max_dd": 13.287142857142857,
+        "night_std": 1.840512218978796,
+        "worst_night": -3.5,
+        "sharpe_night": 0.04131284274445619,
+        "ev_pin": -0.10705834798965887
       },
       "robustness": {
         "neighbors": 6,
-        "neighbors_median_val_profit_season": 114.49064466244961,
-        "rank_among_neighbors": 3,
-        "p_value_no_edge": 0.0001999600079984003,
-        "p_value_bonferroni": 0.13437312537492502
+        "neighbors_median_val_profit_season": 61.946332060988595,
+        "rank_among_neighbors": 4,
+        "p_value_no_edge": 0.0007998400319936012,
+        "p_value_bonferroni": 0.15356928614277143
       }
     },
     "buteur_prod": {
@@ -356,8 +355,8 @@
       "rule": "variante manuelle : buteur seul avec le moteur de prod",
       "manual": true,
       "config": {
-        "engine": "p1b_ens",
-        "engine_label": "Ensemble LGBM + XGB + CatBoost (prod)",
+        "engine": "v2",
+        "engine_label": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
         "markets": [
           "but"
         ],
@@ -370,38 +369,38 @@
         "max_bets_per_game": 1
       },
       "val": {
-        "n": 144.0,
-        "per_game": 0.13259668508287292,
-        "profit": 39.13095463564213,
-        "profit_season": 44.02232396509739,
-        "roi": 0.28151765924922395,
-        "profit_ci_lo": 0.40399482548700894,
-        "profit_ci_hi": 79.96591389339824,
-        "max_dd": 13.545,
-        "night_std": 2.413263127542106,
-        "worst_night": -3.5,
-        "sharpe_night": 0.2105838398835908,
-        "ev_pin": -0.08183472601188638
+        "n": 97.0,
+        "per_game": 0.08376511226252159,
+        "profit": 20.760050955988454,
+        "profit_season": 23.35505732548701,
+        "roi": 0.3030664373137001,
+        "profit_ci_lo": -7.598261961129147,
+        "profit_ci_hi": 50.231055420274124,
+        "max_dd": 7.449999999999999,
+        "night_std": 1.924688743539571,
+        "worst_night": -2.0,
+        "sharpe_night": 0.1712093030393141,
+        "ev_pin": -0.09332621201473953
       },
       "ctl": {
-        "n": 55.0,
-        "per_game": 0.09499136442141623,
-        "profit": 14.446229707792206,
-        "profit_season": 30.2362947372395,
-        "roi": 0.38016393967874224,
-        "profit_ci_lo": -5.619952448593074,
-        "profit_ci_hi": 36.7281001082251,
-        "max_dd": 7.5,
-        "night_std": 1.7595748259659965,
-        "worst_night": -1.5,
-        "sharpe_night": 0.20024557117102187,
-        "ev_pin": -0.11870510842233005
+        "n": 30.0,
+        "per_game": 0.04862236628849271,
+        "profit": 8.165133928571427,
+        "profit_season": 17.089815199335543,
+        "roi": 0.5103208705357142,
+        "profit_ci_lo": -7.0224553571428565,
+        "profit_ci_hi": 24.754777901785694,
+        "max_dd": 7.0,
+        "night_std": 1.657991962379924,
+        "worst_night": -1.0,
+        "sharpe_night": 0.20519635885455348,
+        "ev_pin": -0.12833189438925358
       },
       "robustness": {
         "neighbors": 6,
-        "neighbors_median_val_profit_season": 49.403473518668825,
-        "rank_among_neighbors": 5,
-        "p_value_no_edge": 0.002599480103979204,
+        "neighbors_median_val_profit_season": 20.578492035308443,
+        "rank_among_neighbors": 3,
+        "p_value_no_edge": 0.041391721655668866,
         "p_value_bonferroni": 1.0
       }
     }

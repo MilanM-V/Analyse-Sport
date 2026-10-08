@@ -80,8 +80,8 @@ Le mode **découverte** (début de saison, joueurs à moins de 10 matchs) exige 
 
 ## Modèle et stratégie de mise
 
-- **Modèle** : `TemporalCalibratedGBM` ([`nhl/core/ensemble_model.py`](nhl/core/ensemble_model.py)), mélange LightGBM / XGBoost / CatBoost pondéré par log-loss, calibration isotonique sur le bloc le plus récent.
-- **Features** : une seule fonction, [`nhl/core/features.py`](nhl/core/features.py), sert à l'entraînement, à la simulation et à la prod (parité testée). Historique MoneyPuck 2008-2024 et API NHL.
+- **Modèle (moteur v2, octobre 2026)** : `TemporalCalibratedGBM` ([`nhl/core/ensemble_model.py`](nhl/core/ensemble_model.py)), mélange LightGBM / XGBoost / CatBoost pondéré par log-loss et calibré par Platt sur le bloc le plus récent, moyenné en logit avec 3 réseaux de neurones (scikit-learn) calibrés à part. Réglages dans la section `[model]` de `settings.toml`, retrain hebdomadaire compris.
+- **Features** : une seule fonction, [`nhl/core/features.py`](nhl/core/features.py), sert à l'entraînement, à la simulation et à la prod (parité testée). Historique MoneyPuck 2008-2024 et API NHL, plus 12 features xG en saison (individuel, sur la glace, équipe / adversaire). Résultats saison par saison : [`nhl/reports/MOTEUR_V2_2026-10-09.md`](nhl/reports/MOTEUR_V2_2026-10-09.md).
 - **Validation** : holdout temporel strict, backtest walk-forward soirée par soirée, saison 2023-24 pour choisir, oct. 2024 → janv. 2025 pour contrôler.
 - **Probabilité finale** : `p = w · p_modèle + (1 − w) · p_Pinnacle` (w = 0,65 buteur, 0,90 passeur ; sans Pinnacle, p_modèle et seuil relevé de 5 points).
 - **Sélection** : EV ≥ 8 %, cotes 1,5 à 15 (buteur) ou 6 (passeur), un seul pari par match (le meilleur).
@@ -170,6 +170,8 @@ python nhl/scripts/search_config.py                                # grille de c
 python nhl/scripts/export_simulator_data.py                        # régénère simulateur.html
 python nhl/scripts/audit_price_sensitivity.py                      # sensibilité du ROI au prix
 python nhl/scripts/fr_odds_report.py                               # bilan des vraies cotes enregistrées
+python nhl/scripts/engine_report.py                                # résultats du moteur v2 par saison (vs moteur p1, Pinnacle)
+python nhl/scripts/paper_quality.py                                # paper trading : log-loss du moteur contre Pinnacle
 ```
 
 **Telegram**
