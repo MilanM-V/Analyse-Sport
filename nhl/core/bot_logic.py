@@ -399,7 +399,7 @@ class NhlBot(BaseSportBot):
         """
         from nhl.core.market_filter import MIN_GP, evaluate_early_season
         from nhl.core.features import FEATURES_VERSION
-        from nhl.core.betting import select_bets
+        from nhl.core.betting import BetParams, blend_probability, select_bets
         from nhl.core.formatter import format_telegram_v18
         from nhl.core.logger_csv import log_picks_to_db, log_picks_to_csv
 
@@ -607,10 +607,15 @@ class NhlBot(BaseSportBot):
                 logger.error("ALERTE CRITIQUE : AUCUNE COTE TROUVÉE POUR AUCUN JOUEUR DE LA VAGUE !")
                 self.telegram.send_message(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
 
-        # Mise à jour des cotes dans all_evaluated_players pour logger_csv
+        # Mise à jour des cotes dans all_evaluated_players pour logger_csv. Le no-vig Pinnacle de
+        # chaque marché est journalisé pour tous les joueurs évalués : c'est la référence du suivi
+        # de la qualité du modèle en paper trading (log-loss contre Pinnacle).
         for p in all_evaluated_players:
-            odds_but = odds_map.get(p["Joueur"], {}).get("BUTS", {})
-            if isinstance(odds_but, dict): p["Cote"] = odds_but.get("price")
+            for market, odds_key in (("but", "BUTS"), ("ast", "ASSISTS")):
+                od = odds_map.get(p["Joueur"], {}).get(odds_key, {})
+                od = od if isinstance(od, dict) else {}
+                p[f"PNovig_{market}"] = od.get("p_novig")
+                p["Cote" if market == "but" else "CoteAst"] = od.get("price")
 
         # Passe 3 : Inférence ML (chaîne de features unique, cf. nhl/core/features.py)
         games = []
@@ -628,6 +633,7 @@ class NhlBot(BaseSportBot):
             game_of_team[g["home"]] = g["gameId"]
             game_of_team[g["away"]] = g["gameId"]
         cands = []
+        blend_w = BetParams.from_config().blend_w
         for market, candidates, odds_key, score_key in (
             ("but", candidates_but, "BUTS", "Score_But"),
             ("ast", candidates_ast, "ASSISTS", "Score_Assist"),
@@ -652,6 +658,8 @@ class NhlBot(BaseSportBot):
                     if ep["Joueur"] == p["Joueur"]:
                         ep[score_key] = p["PModel"]
                         ep.setdefault("Features", {})[market] = p["Features"]
+                        ep["PlayerId"] = p["PlayerId"]
+                        ep[f"PFinal_{market}"] = blend_probability(p["PModel"], p["PNovig"], blend_w[market])
                 cands.append({"market": market, "p_model": p["PModel"], "p_novig": p["PNovig"],
                               "cote": p["Cote"], "game_id": game_of_team.get(p["Equipe"]),
                               "early": p.get("Phase") == "early", "_pick": p})

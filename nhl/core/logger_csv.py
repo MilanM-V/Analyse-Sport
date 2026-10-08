@@ -117,6 +117,11 @@ def log_picks_to_db(
             "consec_goals": f.get("ConsecGoals", 0), "game_mode": cfg.api.mode,
             "cote": p.get("Cote"), "goalie_sv_pct": p.get("goalie_sv_pct"),
             "features_json": json.dumps(p.get("Features") or {}, separators=(",", ":")),
+            # Suivi de la qualité du modèle en paper trading (2026-10-08) : no-vig Pinnacle et proba
+            # finale de chaque marché, playerId pour résoudre les résultats sans ambiguïté de nom
+            "player_id": p.get("PlayerId"), "cote_ast": p.get("CoteAst"),
+            "p_novig_but": p.get("PNovig_but"), "p_novig_ast": p.get("PNovig_ast"),
+            "p_final_but": p.get("PFinal_but"), "p_final_ast": p.get("PFinal_ast"),
         })
 
 

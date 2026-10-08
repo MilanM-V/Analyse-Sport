@@ -20,7 +20,7 @@ for p in (ROOT, NHL_DIR):
         sys.path.insert(0, p)
 
 from nhl.config.settings import cfg  # noqa: E402
-from nhl.scripts.simulate_roi import GAMELOG_MP, PhaseSpec, season_to_date_stats  # noqa: E402
+from nhl.scripts.simulate_roi import PhaseSpec, season_to_date_stats  # noqa: E402
 
 # Le code de prod logge chaque rejet : inutile en simulation
 for name in ("NHL_Bot", "NHL.Filter", "NHL.BotLogic"):
@@ -32,9 +32,13 @@ CATEGORY = {"but": "BUTEUR", "ast": "PASSEUR"}
 
 
 def _std_stats() -> pd.DataFrame:
-    """Stats saison/L10 vues par le bot avant chaque match (depuis les gamelogs MoneyPuck)."""
-    gl = pd.read_parquet(GAMELOG_MP)
-    return season_to_date_stats(gl)
+    """Stats saison/L10 vues par le bot avant chaque match (gamelogs MoneyPuck + API NHL).
+
+    Avant le 2026-10-08, seuls les logs MoneyPuck (jusqu'à 2024-25) étaient lus : std_gp, G/GP,
+    A/GP et ATOI_L10 valaient 0 sur toutes les lignes à partir de 2025-26.
+    """
+    from nhl.core.features import load_all_gamelogs
+    return season_to_date_stats(load_all_gamelogs())
 
 
 # ─────────────────────────────────────────────────────────────────────────────

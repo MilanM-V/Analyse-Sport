@@ -220,7 +220,11 @@ def walk_forward_predictions(spec: PhaseSpec, df: pd.DataFrame, odds: pd.DataFra
             chunk = test[(test.date >= start) & (test.date < end)]
             if chunk.empty:
                 continue
-            tr = df[(df.date < start) & spec.train_mask(df, market)]
+            # Tri chronologique, comme train_models.load_training_frame : TemporalCalibratedGBM calibre
+            # sur les 15 % DERNIÈRES lignes reçues. Les features arrivent triées par joueur ; sans ce
+            # tri, le bloc de calibration était fait des playerId les plus élevés (défaut H17, 2026-10-07).
+            tr = (df[(df.date < start) & spec.train_mask(df, market)]
+                  .sort_values(["date", "gameId", "playerId"], kind="mergesort"))
             t0 = time.time()
             model = spec.model_factory(market)
             model.fit(tr[feats].to_numpy(dtype=float), tr[target].to_numpy())

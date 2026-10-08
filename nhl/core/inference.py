@@ -46,30 +46,71 @@ def check_history(logs: pd.DataFrame) -> None:
             "nhl/data/gamelogs/mp_gamelogs.parquet est-il présent ? (python -m nhl.data.gamelog_moneypuck)")
 
 
+def serving_history(logs: pd.DataFrame, season: int, pids: Iterable[int], today: pd.Timestamp) -> pd.DataFrame:
+    """Logs passés nécessaires aux features des matchs à venir.
+
+    - Tous les joueurs des saisons `season - 1` et `season` : les fenêtres d'équipe (team_gf_l10,
+      opp_ga_l10, opp_sa_l10...) remontent sur la saison précédente pendant les ~10 premiers
+      matchs. Avec les seuls joueurs du soir, ces matchs étaient incomplets, d'où un écart
+      entre entraînement et service en début de saison (corrigé le 2026-10-08).
+    - L'historique complet des joueurs du soir (features carrière, moyennes exponentielles).
+
+    Args:
+        logs: tous les logs de match chargés.
+        season: saison des matchs à venir (année de début).
+        pids: playerId des lignes à venir.
+        today: date de la session ; seuls les matchs antérieurs sont gardés.
+    """
+    keep = (logs["season"] >= season - 1) | logs["playerId"].isin(set(pids))
+    return logs[keep & (logs["gameDate"] < today)]
+
+
 def norm_name(name: str) -> str:
     """Nom normalisé (sans accents, ponctuation, casse)."""
     s = "".join(c for c in unicodedata.normalize("NFD", str(name)) if unicodedata.category(c) != "Mn")
     return " ".join(re.sub(r"[^a-z ]", " ", s.lower()).split())
 
 
-def model_path(market: str) -> Optional[str]:
-    """Chemin du modèle à servir : retrain du VPS (models/live/) s'il existe, sinon models/."""
+def load_model_bundle(market: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Modèle à servir : retrain du VPS (models/live/) s'il est de la version de features courante, sinon models/.
+
+    Un modèle live d'une ancienne version de features (retrain d'avant un changement de features)
+    était servi quand même et le bot n'émettait plus aucun pick. Il est désormais ignoré. Si aucun
+    modèle n'est compatible, le premier trouvé est renvoyé : bot_logic signale alors l'incompatibilité.
+
+    Returns:
+        (chemin, bundle joblib), ou (None, None) si aucun modèle n'existe.
+    """
+    from nhl.core.features import FEATURES_VERSION
+    fallback: Tuple[Optional[str], Optional[Dict[str, Any]]] = (None, None)
     for d in (os.path.join(MODELS_DIR, "live"), MODELS_DIR):
         path = os.path.join(d, f"ml_model_{market}.pkl")
-        if os.path.exists(path):
-            return path
-    return None
+        if not os.path.exists(path):
+            continue
+        bundle = joblib.load(path)
+        if bundle.get("features_version") == FEATURES_VERSION:
+            return path, bundle
+        logger.warning(f"Modèle {market} ignoré : {path} (features_version={bundle.get('features_version')} "
+                       f"≠ {FEATURES_VERSION})")
+        if fallback[0] is None:
+            fallback = (path, bundle)
+    return fallback
+
+
+def model_path(market: str) -> Optional[str]:
+    """Chemin du modèle servi pour `market` (cf. load_model_bundle)."""
+    return load_model_bundle(market)[0]
 
 
 def load_models() -> Dict[str, Dict[str, Any]]:
     """Charge ml_model_{but,ast}.pkl (dicts joblib) une seule fois."""
     models = {}
     for m in ("but", "ast"):
-        path = model_path(m)
-        if path:
-            models[m] = joblib.load(path)
-            logger.info(f"Modèle {m} chargé (algo={models[m].get('algo')}, "
-                        f"features_version={models[m].get('features_version')}, cutoff={models[m].get('train_cutoff')})")
+        path, bundle = load_model_bundle(m)
+        if bundle is not None:
+            models[m] = bundle
+            logger.info(f"Modèle {m} chargé depuis {path} (algo={bundle.get('algo')}, "
+                        f"features_version={bundle.get('features_version')}, cutoff={bundle.get('train_cutoff')})")
         else:
             logger.error(f"Modèle introuvable pour le marché {m}")
     return models
@@ -217,10 +258,8 @@ class FeatureEngine:
         up = self._upcoming_rows(games, lineup, today)
         if up.empty:
             return {}
-        pids = set(up["playerId"])
         season = int(up["season"].iloc[0])
-        hist = self.logs[(self.logs["season"] == season) | (self.logs["playerId"].isin(pids))]
-        hist = hist[hist["gameDate"] < pd.Timestamp(today)]
+        hist = serving_history(self.logs, season, up["playerId"], pd.Timestamp(today))
         feats = build_features(pd.concat([hist, up], ignore_index=True), self.priors)
         feats = feats[feats["target_but"].isna() & feats["gameId"].isin(up["gameId"])]
         by_pid = feats.set_index("playerId")

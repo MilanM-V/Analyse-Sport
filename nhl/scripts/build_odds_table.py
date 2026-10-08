@@ -32,13 +32,27 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from nhl.config.constants import TEAM_FULL_TO_ABBR  # noqa: E402
+from nhl.core.odds import nhl_team_key  # noqa: E402
 
 ODDS_DIR = os.path.join(ROOT, "nhl", "data", "odds")
 DB_PATH = os.path.join(ODDS_DIR, "historical_odds.db")
 GAMELOG_DIR = os.path.join(ROOT, "nhl", "data", "gamelogs")
 
-TEAM_MAP = dict(TEAM_FULL_TO_ABBR, **{"Arizona Coyotes": "ARI"})
 MARKETS = {"player_goal_scorer_anytime": "but", "player_assists": "ast"}
+# Même rapprochement des noms d'équipe que la prod (accents, alias) : The Odds API écrit
+# « Montréal Canadiens » en 2025-26, absent d'une table exacte (82 matchs perdus avant le 2026-10-08).
+_TEAM_KEY = nhl_team_key()
+_ABBRS = set(TEAM_FULL_TO_ABBR.values()) | {"ARI"}
+
+
+def team_abbr(name: Optional[str]) -> Optional[str]:
+    """Nom d'équipe The Odds API -> abréviation NHL, ou None si l'équipe est inconnue."""
+    if not name:
+        return None
+    if norm_full(name) == "arizona coyotes":  # franchise relocalisée (Utah, 2024)
+        return "ARI"
+    abbr = _TEAM_KEY(name)
+    return abbr if abbr in _ABBRS else None
 
 
 def norm_full(name: str) -> str:
@@ -65,8 +79,11 @@ def norm_drop(name: str) -> str:
 def parse_long() -> pd.DataFrame:
     """Parse le cache SQLite en table longue (dernier snapshot par event)."""
     conn = sqlite3.connect(DB_PATH)
+    # Ordre fixe : quand un book cote un joueur sous deux graphies, la cote gardée (keep="last")
+    # dépendait de l'ordre des lignes SQLite (58 lignes sur 96 261 changeaient d'un parsing à l'autre)
     rows = conn.execute(
-        "SELECT snapshot_time, json_response FROM api_cache WHERE event_id != 'EVENTS'"
+        "SELECT snapshot_time, json_response FROM api_cache WHERE event_id != 'EVENTS' "
+        "ORDER BY snapshot_time, event_id"
     ).fetchall()
     conn.close()
     recs: List[Dict] = []
@@ -75,7 +92,7 @@ def parse_long() -> pd.DataFrame:
         if not data.get("bookmakers"):
             continue
         commence = pd.Timestamp(data["commence_time"])
-        home, away = TEAM_MAP.get(data.get("home_team")), TEAM_MAP.get(data.get("away_team"))
+        home, away = team_abbr(data.get("home_team")), team_abbr(data.get("away_team"))
         if not home or not away:
             continue
         date_et = commence.tz_convert("US/Eastern").strftime("%Y-%m-%d")
@@ -98,7 +115,7 @@ def parse_long() -> pd.DataFrame:
     df["player_norm"] = df["player_raw"].map(norm_full)
     df["player_drop"] = df["player_raw"].map(norm_drop)
     # Plusieurs snapshots possibles pour un même event : on garde le plus tardif (≈ closing)
-    df = (df.sort_values("snapshot")
+    df = (df.sort_values("snapshot", kind="mergesort")
             .drop_duplicates(["date", "home", "away", "book", "market", "side", "player_norm"], keep="last"))
     return df
 

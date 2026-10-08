@@ -137,11 +137,12 @@ def _resolve_date(date_str: str, box: dict) -> int:
                     portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1), market=market)
                 resolved += 1
 
-        # Table unifiée des joueurs évalués (stats brutes, pas de void)
-        c.execute("SELECT id, joueur, equipe FROM players WHERE date = ? AND (but IS NULL OR but = '')", (date_str,))
-        for p_id, joueur, equipe in c.fetchall():
+        # Table unifiée des joueurs évalués (stats brutes, pas de void) ; par playerId s'il est connu
+        c.execute("SELECT id, joueur, equipe, player_id FROM players WHERE date = ? AND (but IS NULL OR but = '')",
+                  (date_str,))
+        for p_id, joueur, equipe, player_id in c.fetchall():
             if equipe in box:
-                stats, _ = find_player_stats(box[equipe], joueur, None)
+                stats, _ = find_player_stats(box[equipe], joueur, player_id)
                 if stats is not None:
                     c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?",
                               (stats["goals"], stats["assists"], stats["points"], p_id))

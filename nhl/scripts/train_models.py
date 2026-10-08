@@ -10,8 +10,8 @@ scripts/train_models.py — Entraînement des modèles NHL de production (V3, pa
   Un modèle en place d'une autre version de features est toujours remplacé.
 
 Usage:
-    python nhl/scripts/train_models.py                 # entraîne + gate + sauvegarde
-    python nhl/scripts/train_models.py --algos lgbm,xgb,cat
+    python nhl/scripts/train_models.py                 # entraîne + gate + sauvegarde (modèle de [model])
+    python nhl/scripts/train_models.py --algos lgbm    # surcharge des algos de [model]
     python nhl/scripts/train_models.py --force         # ignore le gate
 """
 import argparse
@@ -32,6 +32,7 @@ if ROOT not in sys.path:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+from nhl.config.settings import cfg  # noqa: E402
 from nhl.core.ensemble_model import TemporalCalibratedGBM  # noqa: E402
 from nhl.core.monitoring import reference_profile  # noqa: E402
 from nhl.core.features import (FEATURES, FEATURES_VERSION, build_features,  # noqa: E402
@@ -41,7 +42,9 @@ MODELS_DIR = os.path.join(ROOT, "nhl", "models")
 LIVE_DIR = os.path.join(MODELS_DIR, "live")  # retrains du VPS : hors git (pas de conflit au pull)
 HOLDOUT_DAYS = 45
 MIN_SEASON = 2009
-DEFAULT_ALGOS = ("lgbm",)
+# Moteur de prod ([model] de settings.toml). Le retrain du VPS (`--live`, sans `--algos`) utilisait
+# ("lgbm",) : un LightGBM seul pouvait remplacer l'ensemble validé (corrigé le 2026-10-08).
+DEFAULT_ALGOS = tuple(cfg.model.algos)
 
 
 def load_training_frame() -> pd.DataFrame:
@@ -80,11 +83,10 @@ GATE_MIN_ROWS = 2000  # lignes postérieures au cutoff du modèle en place néce
 
 def _current_bundle(market: str) -> Optional[dict]:
     """Modèle en place (live/ prioritaire), ou None s'il est absent ou d'une autre version de features."""
-    from nhl.core.inference import model_path
-    path = model_path(market)
-    if not path:
+    from nhl.core.inference import load_model_bundle
+    _, bundle = load_model_bundle(market)
+    if bundle is None:
         return None
-    bundle = joblib.load(path)
     if bundle.get("features_version") != FEATURES_VERSION:
         print(f"  [gate] {market} : modèle en place d'une autre version de features "
               f"({bundle.get('features_version')}) → remplacé.")
