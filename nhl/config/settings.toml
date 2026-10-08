@@ -93,6 +93,11 @@ max_game_exposure_u = 5.0    # paris corrélés d'un même match
 max_bets_per_game = 1        # on ne garde que le meilleur EV de chaque match (0 = illimité)
 max_daily_exposure_u = 30.0
 
+[journal]
+# Journalisation pour de futures features : sans effet sur les paris ni sur la version du
+# simulateur (qui ne hache que [betting]).
+dailyfaceoff = true  # lignes, unités PP / PK et blessés Daily Faceoff des équipes de chaque vague (table dfo_lines)
+
 [model]
 # Moteur de prod (nhl/core/ensemble_model.TemporalCalibratedGBM), lu par nhl/scripts/train_models.py,
 # y compris par le retrain hebdomadaire du VPS. Avant le 2026-10-08, ce retrain entraînait un

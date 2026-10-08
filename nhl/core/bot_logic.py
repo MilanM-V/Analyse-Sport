@@ -703,6 +703,7 @@ class NhlBot(BaseSportBot):
                     if p.get("Ref"):
                         self.telegram.send_pick_card(p, market)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+            self._log_dailyfaceoff(wave_ids)
 
     def _log_market_data(self, loop: asyncio.AbstractEventLoop, matches: List[Tuple[str, str]],
                          wave_ids: List[str]) -> None:
@@ -719,6 +720,18 @@ class NhlBot(BaseSportBot):
             loop.run_until_complete(log_extra_props(matches, session_date))
         except Exception as e:  # la journalisation ne doit jamais empêcher l'envoi des picks
             logger.error(f"[Contexte] Journalisation du marché impossible : {e}", exc_info=True)
+
+    def _log_dailyfaceoff(self, wave_ids: List[str]) -> None:
+        """Lignes du jour Daily Faceoff des équipes de la vague (futures features), après l'envoi des picks."""
+        if not getattr(getattr(cfg, "journal", None), "dailyfaceoff", False):
+            return
+        try:
+            from nhl.core.dailyfaceoff import log_team_lines
+            teams = {loaders.clean_team_name(self.compos_en_memoire[mid]["match_info"][side])
+                     for mid in wave_ids for side in ("home", "away")}
+            log_team_lines(teams, self.get_nhl_session_date())
+        except Exception as e:  # la journalisation ne doit jamais casser la vague
+            logger.error(f"[DFO] Journalisation Daily Faceoff impossible : {e}", exc_info=True)
 
     def end_of_day_cleanup(self) -> None:
         """Resolves pending picks and cleans up session data."""
