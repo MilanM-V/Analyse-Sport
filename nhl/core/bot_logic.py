@@ -747,6 +747,12 @@ class NhlBot(BaseSportBot):
         except Exception as e:
             logger.error(f"Erreur auto-résolution ou export : {e}")
 
+        try:  # xG des saisons récentes : rattrapage complet, hors des heures de match
+            from nhl.data.xg_nhlapi import ensure_xg_recent
+            ensure_xg_recent(backfill=True)
+        except Exception as e:
+            logger.error(f"[xG] rattrapage de fin de journée impossible : {e}", exc_info=True)
+
         if self.matchs_traites:
 
             self.matchs_traites.clear()

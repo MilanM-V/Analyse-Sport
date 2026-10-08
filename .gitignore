@@ -53,6 +53,10 @@ analyse/
 # ─── Données dérivées (régénérées automatiquement) ─
 nhl/data/*_all.csv
 nhl/data/gamelogs/nhlapi_*.parquet
+# xG des saisons ≥ 2025-26 (reconstruit par nhl/data/xg_nhlapi.py) et copies du miroir MoneyPuck ;
+# mp_xg.parquet (historique 2008-2024) est versionné
+nhl/data/gamelogs/xg_*.parquet
+nhl/data/gamelogs/mp_shots_*
 nhl/data/odds/odds_wide.parquet
 nhl/data/odds/odds_long.parquet
 nhl/sent_matches.json

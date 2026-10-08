@@ -134,6 +134,11 @@ class FeatureEngine:
         if collect:
             from nhl.data.gamelog_nhlapi import ensure_recent_seasons
             ensure_recent_seasons()
+            try:  # xG des saisons récentes : quelques matchs (le rattrapage complet est fait en fin de journée)
+                from nhl.data.xg_nhlapi import ensure_xg_recent
+                ensure_xg_recent(backfill=False)
+            except Exception as e:
+                logger.error(f"[xG] mise à jour impossible : {e}", exc_info=True)
         logs = load_all_gamelogs()
         check_history(logs)  # aucune inférence sur un historique tronqué
         self.logs = logs
