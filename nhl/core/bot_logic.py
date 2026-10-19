@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
-from shared.utils import paris_now
+from shared.utils import match_player_name, normalize_name, paris_now
 import subprocess
 import sys
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -58,6 +58,35 @@ def plan_wave_sends(waves: List[List[str]], is_complete: Callable[[List[str]], b
         elif complete:
             preview_ids += [m for m in wave if m not in previewed]
     return preview_ids, confirmed_ids
+
+
+def match_lineup_name(player: str, team_abbr: str, known_players: List[str],
+                      form_data: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    """Nom d'un joueur de la compo RotoWire -> nom connu du bot (clé de form_data, v5_data…).
+
+    1. Nom identique, accents retirés.
+    2. Repli : l'unique joueur de form_data de la même équipe qui a la même initiale et le même nom de
+       famille (shared.utils.match_player_name), pour les variantes de prénom (« Thomas Novak » sur
+       RotoWire, « Tommy Novak » à l'API NHL). Plusieurs candidats : aucun n'est retenu.
+
+    Args:
+        player: nom lu sur RotoWire.
+        team_abbr: abréviation de l'équipe du joueur dans la compo.
+        known_players: noms connus du bot (DataStore.known_players).
+        form_data: stats récentes par joueur (DataStore.form_data), avec la colonne 'Team'.
+
+    Returns:
+        Le nom connu, ou None si le joueur n'est pas reconnu.
+    """
+    if player in known_players:
+        return player
+    n_player = normalize_name(player)
+    for known_p in known_players:
+        if normalize_name(known_p) == n_player:
+            return known_p
+    cands = [k for k, f in form_data.items()
+             if loaders.clean_team_name(str(f.get("Team", ""))) == team_abbr and match_player_name(k, player)]
+    return cands[0] if len(cands) == 1 else None
 
 
 class NhlBot(BaseSportBot):
@@ -441,27 +470,17 @@ class NhlBot(BaseSportBot):
                     team_for_key = home if "dom" in key else away
                     team_abbr = loaders.clean_team_name(team_for_key)
                     for player in c[key]:
-                        matched_player = player
-                        if player in ds.known_players:
-                            compos_brutes.append(player)
-                        else:
-                            from shared.utils import normalize_name
-                            n_player = normalize_name(player)
-                            matched = False
-                            for known_p in ds.known_players:
-                                if normalize_name(known_p) == n_player:
-                                    compos_brutes.append(known_p)
-                                    matched_player = known_p
-                                    matched = True
-                                    break
-                            if not matched:
-                                compos_brutes.append(player)
+                        matched_player = match_lineup_name(player, team_abbr, ds.known_players, ds.form_data) or player
+                        compos_brutes.append(matched_player)
                         rotowire_teams[matched_player] = team_abbr
 
         compos_filtrees = [p for p in compos_brutes if p in ds.form_data]
-        
+
         # Diagnostic : combien de joueurs passent chaque étape du filtre
         logger.info(f"  Joueurs compos bruts: {len(compos_brutes)} → filtrés (dans form_data): {len(compos_filtrees)}")
+        ecartes = sorted({p for p in compos_brutes if p not in ds.form_data})
+        if ecartes:
+            logger.warning(f"  Joueurs RotoWire écartés, absents de form_data ({len(ecartes)}) : {', '.join(ecartes)}")
         if len(compos_brutes) > 0 and len(compos_filtrees) == 0:
             logger.warning("  ⚠️ AUCUN joueur RotoWire reconnu dans form_data (last 10.csv). "
                            "Données potentiellement périmées ou début de saison.")

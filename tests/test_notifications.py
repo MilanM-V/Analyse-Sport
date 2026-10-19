@@ -39,6 +39,53 @@ def test_lineup_reports_goalie_confirmation(monkeypatch):
     assert scraper.get_lineups("1", "New York Rangers", "Utah Mammoth")["confirmed"] is True
 
 
+# ── RotoWire : noms complets (2026-10-19) ───────────────────────────────────
+def _team_ul_titles(side: str, goalie: str, sections: dict) -> str:
+    """Liste RotoWire comme en ligne : texte du lien abrégé au-delà de 12 caractères, nom complet en `title`."""
+    def link(full: str) -> str:
+        short = full if len(full) <= 12 else f"{full[0]}. {full.split(' ', 1)[1]}"
+        return f'<li class="lineup__player"><a title="{full}">{short}</a></li>'
+    body = "".join(f'<li class="lineup__title">{title}</li>' + "".join(link(p) for p in players)
+                   for title, players in sections.items())
+    return (f'<ul class="lineup__list {side}">'
+            f'<li class="lineup__player-highlight"><div class="lineup__player-highlight-name"><a>{goalie}</a></div>'
+            f'<div class="flex-row align-center is-confirmed">Confirmed</div></li>{body}</ul>')
+
+
+def test_lineup_reads_full_names_from_title(monkeypatch):
+    html = ('<div class="lineup is-nhl"><div class="lineup__mteam is-visit">Sharks</div>'
+            '<div class="lineup__mteam is-home">Maple Leafs</div>'
+            + _team_ul_titles("is-visit", "M. Blackwood", {
+                "POWER PLAY #1": ["Macklin Celebrini", "Will Smith", "Tyler Toffoli"],
+                "POWER PLAY #2": ["Michael Misa"]})
+            + _team_ul_titles("is-home", "Sergei Bobrovsky", {
+                "POWER PLAY #1": ["Auston Matthews", "Kirill Marchenko", "Nick Paul"],
+                "POWER PLAY #2": ["Easton Cowan", "William Nylander", "Morgan Rielly"],
+                "INJURIES": ["William Nylander", "John Tavares"]})
+            + "</div>")
+    monkeypatch.setattr(scraper, "_get_rotowire_soup", lambda: BeautifulSoup(html, "html.parser"))
+    compo = scraper.get_lineups("1", "Toronto Maple Leafs", "San Jose Sharks")
+    assert compo["f1_dom"] == ["Auston Matthews", "Kirill Marchenko", "Nick Paul"]
+    assert compo["f2_dom"] == ["Easton Cowan", "Morgan Rielly"]  # blessé retiré, même graphie des deux côtés
+    assert compo["f1_ext"] == ["Macklin Celebrini", "Will Smith", "Tyler Toffoli"]
+    assert compo["f2_ext"] == ["Michael Misa"]
+    # Les liens des gardiens n'ont pas de `title` : leur texte est gardé
+    assert (compo["goalDom"], compo["goalext"]) == ("Sergei Bobrovsky", "M. Blackwood")
+
+
+def test_match_lineup_name():
+    from nhl.core.bot_logic import match_lineup_name
+    form = {"Nick Suzuki": {"Team": "MTL"}, "Tim Stützle": {"Team": "OTT"}, "Tommy Novak": {"Team": "PIT"},
+            "Jack Hughes": {"Team": "NJD"}, "Jake Hughes": {"Team": "NJD"}}
+    known = list(form) + ["Igor Shesterkin"]
+    assert match_lineup_name("Nick Suzuki", "MTL", known, form) == "Nick Suzuki"
+    assert match_lineup_name("Tim Stutzle", "OTT", known, form) == "Tim Stützle"   # accents
+    assert match_lineup_name("Thomas Novak", "PIT", known, form) == "Tommy Novak"  # prénom usuel, même équipe
+    assert match_lineup_name("Thomas Novak", "NSH", known, form) is None           # autre équipe
+    assert match_lineup_name("Jonah Hughes", "NJD", known, form) is None           # deux candidats
+    assert match_lineup_name("Vinni Lettieri", "TOR", known, form) is None
+
+
 # ── Répartition aperçu / confirmé ───────────────────────────────────────────
 def _plan(waves, complete=(), forced=(), confirmed=(), previewed=()):
     return plan_wave_sends(waves, is_complete=lambda w: w[0] in complete, is_forced=lambda w: w[0] in forced,
