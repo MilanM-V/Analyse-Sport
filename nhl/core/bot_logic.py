@@ -751,16 +751,26 @@ class NhlBot(BaseSportBot):
             logger.error(f"[Contexte] Journalisation du marché impossible : {e}", exc_info=True)
 
     def _log_dailyfaceoff(self, wave_ids: List[str]) -> None:
-        """Lignes du jour Daily Faceoff des équipes de la vague (futures features), après l'envoi des picks."""
+        """Lignes du jour Daily Faceoff des équipes de la vague (futures features), après l'envoi des picks.
+
+        Aucune ligne écrite pour la vague : alerte Telegram, une fois par jour (le journal du bot de test
+        était resté vide sans aucun signal du 09 au 19/10/2026).
+        """
         if not getattr(getattr(cfg, "journal", None), "dailyfaceoff", False):
             return
+        n = 0
         try:
             from nhl.core.dailyfaceoff import log_team_lines
             teams = {loaders.clean_team_name(self.compos_en_memoire[mid]["match_info"][side])
                      for mid in wave_ids for side in ("home", "away")}
-            log_team_lines(teams, self.get_nhl_session_date())
+            n = log_team_lines(teams, self.get_nhl_session_date())
         except Exception as e:  # la journalisation ne doit jamais casser la vague
             logger.error(f"[DFO] Journalisation Daily Faceoff impossible : {e}", exc_info=True)
+        day = self.get_nhl_session_date()
+        if n == 0 and getattr(self, "_dfo_alert_day", None) != day:
+            self.telegram.send_message("⚠️ <b>Daily Faceoff : aucune ligne journalisée</b>\nPages illisibles pour "
+                                       "cette vague (détail : lignes [DFO] de nhl/bot.log). Sans effet sur les picks.")
+            self._dfo_alert_day = day
 
     def end_of_day_cleanup(self) -> None:
         """Resolves pending picks and cleans up session data."""

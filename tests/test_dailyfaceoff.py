@@ -78,3 +78,32 @@ def test_wave_logs_both_teams_of_each_match(monkeypatch):
     seen.clear()
     NhlBot._log_dailyfaceoff(bot, ["g1"])
     assert seen == {}
+
+
+def test_wave_without_any_line_alerts_once_a_day(monkeypatch):
+    """Journal vide sans aucun signal du 09 au 19/10/2026 : alerte Telegram, une fois par soirée."""
+    from types import SimpleNamespace
+
+    from nhl.config.settings import cfg
+    from nhl.core import dailyfaceoff
+    from nhl.core.bot_logic import NhlBot
+    sent = []
+    monkeypatch.setattr(cfg.journal, "dailyfaceoff", True)
+    monkeypatch.setattr(dailyfaceoff, "log_team_lines", lambda teams, date: 0)  # toutes les pages illisibles
+    bot = SimpleNamespace(compos_en_memoire={"g1": {"match_info": {"home": "MTL", "away": "TOR"}}},
+                          get_nhl_session_date=lambda: "2026-10-19", telegram=SimpleNamespace(send_message=sent.append))
+    NhlBot._log_dailyfaceoff(bot, ["g1"])
+    NhlBot._log_dailyfaceoff(bot, ["g1"])  # 2e vague du même soir : pas de 2e alerte
+    assert len(sent) == 1 and "Daily Faceoff" in sent[0]
+    monkeypatch.setattr(dailyfaceoff, "log_team_lines", lambda teams, date: 42)
+    bot.get_nhl_session_date = lambda: "2026-10-20"
+    NhlBot._log_dailyfaceoff(bot, ["g1"])  # lignes écrites : aucune alerte
+    assert len(sent) == 1
+
+    def boom(teams, date):
+        raise RuntimeError("réseau")
+
+    monkeypatch.setattr(dailyfaceoff, "log_team_lines", boom)
+    bot.get_nhl_session_date = lambda: "2026-10-21"
+    NhlBot._log_dailyfaceoff(bot, ["g1"])  # exception : la vague continue, alerte envoyée
+    assert len(sent) == 2
