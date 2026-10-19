@@ -132,6 +132,51 @@ def test_scratched_player_is_voided(dbs, monkeypatch):
     assert upd.update_pending_picks() == 0          # le void n'est plus re-interrogé
 
 
+# ── 2026-10-19 : joueurs évalués résolus aussi les soirs sans pick ────────────
+def _player_row(db, date, joueur, equipe, player_id=None):
+    db.insert_player({"date": date, "vague": "V1", "joueur": joueur, "equipe": equipe, "adversaire": "MTL",
+                      "player_id": player_id})
+
+
+def test_players_resolved_on_nights_without_pick(dbs, monkeypatch):
+    from shared.utils import paris_now
+    db, upd, _ = dbs
+    day = (paris_now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    old = (paris_now() - timedelta(days=upd.PLAYERS_RESOLVE_DAYS + 5)).strftime("%Y-%m-%d")
+    _player_row(db, day, "Joue Bien", "BOS", 11)
+    _player_row(db, day, "Pas Aligne", "BOS", 22)      # absent du boxscore, playerId connu
+    _player_row(db, day, "Nom Inconnu", "BOS")         # sans playerId, aucun nom ne correspond
+    _player_row(db, day, "Match En Cours", "TOR", 33)  # match pas encore terminé au 1er passage
+    _player_row(db, old, "Trop Vieux", "BOS", 11)      # hors de la fenêtre de rattrapage
+    bos = {"by_id": {11: {"goals": 1, "assists": 2, "points": 3, "shots": 4}},
+           "by_name": {"J. Bien": {"goals": 1, "assists": 2, "points": 3, "shots": 4}}}
+    tor = {"by_id": {33: {"goals": 0, "assists": 1, "points": 1, "shots": 2}}, "by_name": {}}
+    calls = []
+
+    def fetch(date_str):
+        calls.append(date_str)
+        return {"BOS": bos} if len(calls) == 1 else {"BOS": bos, "TOR": tor}
+
+    monkeypatch.setattr(upd, "fetch_final_boxscores", fetch)
+
+    def rows():
+        conn = db.get_connection()
+        try:
+            return {j: (b, a, s) for j, b, a, s in conn.execute("SELECT joueur, but, assist, statut FROM players")}
+        finally:
+            conn.close()
+
+    assert upd.update_pending_picks() == 0  # aucun pick : la valeur renvoyée ne compte que les picks
+    assert calls == [day]                    # la soirée trop ancienne n'est pas demandée
+    assert rows() == {"Joue Bien": (1, 2, None), "Pas Aligne": (None, None, "absent"),
+                      "Nom Inconnu": (None, None, "introuvable"), "Match En Cours": (None, None, None),
+                      "Trop Vieux": (None, None, None)}
+    upd.update_pending_picks()               # le match de TOR est terminé : sa ligne est résolue
+    assert rows()["Match En Cours"] == (0, 1, None)
+    upd.update_pending_picks()               # tout est résolu ou marqué : plus aucun téléchargement
+    assert calls == [day, day]
+
+
 def test_portfolio_resolution_distinguishes_markets(tmp_path):
     from shared.portfolio import Portfolio
     pf = Portfolio(str(tmp_path / "pf.db"))
