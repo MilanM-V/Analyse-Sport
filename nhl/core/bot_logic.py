@@ -216,7 +216,7 @@ class NhlBot(BaseSportBot):
             except InsufficientHistoryError as e:
                 logger.critical(str(e))
                 if not self._history_alert_sent:
-                    self.telegram.send_message(f"🚨 <b>NHL : aucun pick</b>\n{e}")
+                    self.telegram.send_admin(f"🚨 <b>NHL : aucun pick</b>\n{e}")
                     self._history_alert_sent = True
                 return False
             except Exception as e:
@@ -624,7 +624,7 @@ class NhlBot(BaseSportBot):
             any_odds_found = any((data.get('BUTS') is not None) or (data.get('ASSISTS') is not None) for data in odds_map.values())
             if not any_odds_found:
                 logger.error("ALERTE CRITIQUE : AUCUNE COTE TROUVÉE POUR AUCUN JOUEUR DE LA VAGUE !")
-                self.telegram.send_message(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
+                self.telegram.send_admin(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
 
         # Mise à jour des cotes dans all_evaluated_players pour logger_csv. Le no-vig Pinnacle de
         # chaque marché est journalisé pour tous les joueurs évalués : c'est la référence du suivi
@@ -649,7 +649,7 @@ class NhlBot(BaseSportBot):
             self.engine.refresh_xg()
             day = self.get_nhl_session_date()
             if self.engine.xg_lag > XG_MAX_LAG_DAYS and getattr(self, "_xg_alert_day", None) != day:
-                self.telegram.send_message(
+                self.telegram.send_admin(
                     f"⚠️ <b>xG NHL en retard de {self.engine.xg_lag} jours</b>\nLes derniers matchs n'ont pas "
                     "encore leur xG (miroir MoneyPuck ou API NHL) : les features xG utilisent les matchs précédents.")
                 self._xg_alert_day = day
@@ -772,7 +772,7 @@ class NhlBot(BaseSportBot):
         if n == 0 and getattr(self, "_dfo_alert_day", None) != day:
             import html
             refus = any(f"HTTP {c}" in cause for c in (401, 403, 429, 503))
-            self.telegram.send_message(
+            self.telegram.send_admin(
                 "⚠️ <b>Daily Faceoff illisible depuis le serveur</b>\n"
                 f"Cause : {html.escape(cause or 'inconnue')}"
                 + (" : le site refuse les requêtes du serveur." if refus else ".")

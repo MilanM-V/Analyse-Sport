@@ -92,7 +92,7 @@ def test_wave_without_any_line_alerts_once_a_day(monkeypatch):
     monkeypatch.setattr(dailyfaceoff, "log_team_lines", lambda teams, date: 0)  # toutes les pages illisibles
     monkeypatch.setattr(dailyfaceoff, "FAILURES", {"MTL": "HTTP 403", "TOR": "HTTP 403"})
     bot = SimpleNamespace(compos_en_memoire={"g1": {"match_info": {"home": "MTL", "away": "TOR"}}},
-                          get_nhl_session_date=lambda: "2026-10-19", telegram=SimpleNamespace(send_message=sent.append))
+                          get_nhl_session_date=lambda: "2026-10-19", telegram=SimpleNamespace(send_admin=sent.append))
     NhlBot._log_dailyfaceoff(bot, ["g1"])
     NhlBot._log_dailyfaceoff(bot, ["g1"])  # 2e vague du même soir : pas de 2e alerte
     assert len(sent) == 1 and "Daily Faceoff" in sent[0]
