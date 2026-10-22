@@ -26,6 +26,18 @@ GAMELOG_DTYPES: Dict[str, str] = {
     "blocked_att": "int16", "pp_g": "int16", "pp_sog": "int16",
 }
 
+# Table xG match par match (une ligne par playerId x gameId), mêmes définitions que les logs
+# MoneyPuck : historique 2008-2024 tiré de MoneyPuck (data/xg_moneypuck.py), saisons suivantes
+# reconstruites à partir des tirs MoneyPuck et de l'API NHL (data/xg_nhlapi.py).
+XG_COLUMNS: List[str] = [
+    "I_F_xGoals", "I_F_highDangerShots", "I_F_highDangerxGoals",   # xG individuel, tirs et xG à haut danger
+    "OnIce_F_xGoals", "OnIce_A_xGoals",                            # xG pour / contre sur la glace
+    "pp_ixg",                                                       # xG individuel à 5 contre 4
+    "ev_onice_xgf", "ev_onice_xga",                                 # xG pour / contre sur la glace à 5 contre 5
+    "I_F_oZoneShiftStarts", "I_F_dZoneShiftStarts",                 # départs de présence en zone off. / déf.
+    "icetime",                                                      # temps de glace (secondes)
+]
+
 # Codes historiques MoneyPuck / anciennes franchises -> abréviation courante
 _EXTRA_TEAM_MAP: Dict[str, str] = {"PHX": "ARI", "ATL": "WPG"}
 

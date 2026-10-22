@@ -80,8 +80,8 @@ Le mode **découverte** (début de saison, joueurs à moins de 10 matchs) exige 
 
 ## Modèle et stratégie de mise
 
-- **Modèle** : `TemporalCalibratedGBM` ([`nhl/core/ensemble_model.py`](nhl/core/ensemble_model.py)), mélange LightGBM / XGBoost / CatBoost pondéré par log-loss, calibration isotonique sur le bloc le plus récent.
-- **Features** : une seule fonction, [`nhl/core/features.py`](nhl/core/features.py), sert à l'entraînement, à la simulation et à la prod (parité testée). Historique MoneyPuck 2008-2024 et API NHL.
+- **Modèle (moteur v2, octobre 2026)** : `TemporalCalibratedGBM` ([`nhl/core/ensemble_model.py`](nhl/core/ensemble_model.py)), mélange LightGBM / XGBoost / CatBoost pondéré par log-loss et calibré par Platt sur le bloc le plus récent, moyenné en logit avec 3 réseaux de neurones (scikit-learn) calibrés à part. Réglages dans la section `[model]` de `settings.toml`, retrain hebdomadaire compris.
+- **Features** : une seule fonction, [`nhl/core/features.py`](nhl/core/features.py), sert à l'entraînement, à la simulation et à la prod (parité testée). Historique MoneyPuck 2008-2024 et API NHL, plus 12 features xG en saison (individuel, sur la glace, équipe / adversaire). Résultats saison par saison : [`nhl/reports/MOTEUR_V2_2026-10-09.md`](nhl/reports/MOTEUR_V2_2026-10-09.md).
 - **Validation** : holdout temporel strict, backtest walk-forward soirée par soirée, saison 2023-24 pour choisir, oct. 2024 → janv. 2025 pour contrôler.
 - **Probabilité finale** : `p = w · p_modèle + (1 − w) · p_Pinnacle` (w = 0,65 buteur, 0,90 passeur ; sans Pinnacle, p_modèle et seuil relevé de 5 points).
 - **Sélection** : EV ≥ 8 %, cotes 1,5 à 15 (buteur) ou 6 (passeur), un seul pari par match (le meilleur).
@@ -117,6 +117,8 @@ pip install -r requirements.txt pyarrow
 ```
 
 Le bot refuse de démarrer sans l'historique `nhl/data/gamelogs/mp_gamelogs.parquet` (hors git, à copier depuis une installation existante).
+
+L'historique xG match par match `nhl/data/gamelogs/mp_xg.parquet` (2008-2024) est versionné. Les saisons suivantes sont reconstruites par le bot à partir des tirs MoneyPuck (miroir [mattkravec/moneypuck-data](https://github.com/mattkravec/moneypuck-data)) et des présences de l'API NHL : chaque soir quelques matchs, et un rattrapage complet en fin de journée. Rattrapage manuel : `python -m nhl.data.xg_nhlapi --season 2025`. Données [MoneyPuck](https://moneypuck.com/data.htm) : usage non commercial, à citer.
 
 ## Configuration
 
@@ -160,12 +162,16 @@ pytest tests/ -v                                    # suite de tests (lancée en
 
 ```bash
 python nhl/scripts/build_historical_dataset.py --min-season 2018   # jeu de données historique
-python nhl/scripts/train_models.py --algos lgbm,xgb,cat            # entraînement (ensemble de prod)
+python nhl/scripts/train_models.py                                 # entraînement (moteur de prod, section [model])
+python -m nhl.data.xg_nhlapi --status                             # couverture de l'xG des saisons récentes
+python -m nhl.data.xg_nhlapi --parity 2024 --sample 300           # xG reconstruit vs logs MoneyPuck
 python nhl/scripts/walk_forward_backtest.py                        # backtest soirée par soirée
 python nhl/scripts/search_config.py                                # grille de configurations au prix réaliste
 python nhl/scripts/export_simulator_data.py                        # régénère simulateur.html
 python nhl/scripts/audit_price_sensitivity.py                      # sensibilité du ROI au prix
 python nhl/scripts/fr_odds_report.py                               # bilan des vraies cotes enregistrées
+python nhl/scripts/engine_report.py                                # résultats du moteur v2 par saison (vs moteur p1, Pinnacle)
+python nhl/scripts/paper_quality.py                                # paper trading : log-loss du moteur contre Pinnacle
 ```
 
 **Telegram**

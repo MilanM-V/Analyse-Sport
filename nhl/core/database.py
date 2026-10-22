@@ -190,7 +190,11 @@ def init_db():
         ("score_but", "REAL"), ("score_assist", "REAL"), ("score_point", "REAL"),
         ("picked_but", "BOOLEAN"), ("picked_assist", "BOOLEAN"), ("picked_point", "BOOLEAN"),
         ("l10_a", "REAL"), ("l10_pts", "REAL"), ("season_a", "REAL"), ("season_pts", "REAL"),
-        ("assist", "INTEGER DEFAULT NULL"), ("point", "INTEGER DEFAULT NULL")
+        ("assist", "INTEGER DEFAULT NULL"), ("point", "INTEGER DEFAULT NULL"),
+        # 2026-10-08 : suivi de la qualité du modèle en paper trading, par marché
+        ("p_novig_but", "REAL DEFAULT NULL"), ("p_novig_ast", "REAL DEFAULT NULL"),
+        ("p_final_but", "REAL DEFAULT NULL"), ("p_final_ast", "REAL DEFAULT NULL"),
+        ("cote_ast", "REAL DEFAULT NULL"),
     ]
     for col_name, col_type in player_cols:
         try:

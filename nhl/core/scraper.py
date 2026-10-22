@@ -122,6 +122,15 @@ def _get_rotowire_soup():
     
     return None
 
+def _link_name(a_tag) -> str:
+    """Nom affiché par un lien RotoWire, en entier.
+
+    RotoWire abrège dans le texte du lien tout nom de plus de 12 caractères (« A. Matthews ») ; le nom
+    complet est dans l'attribut `title` (relevé du 2026-10-19 : 119 joueurs sur 119). Les liens des
+    gardiens n'ont pas de `title` : leur texte, presque toujours complet, est gardé.
+    """
+    return (a_tag.get("title") or a_tag.text).strip()
+
 def _parse_rotowire_team(ul_element) -> dict:
     team_data = {
         "goalie": "",
@@ -138,7 +147,7 @@ def _parse_rotowire_team(ul_element) -> dict:
     if goalie_item:
         a_tag = goalie_item.select_one('a')
         if a_tag:
-            team_data["goalie"] = a_tag.text.strip()
+            team_data["goalie"] = _link_name(a_tag)
         # Sous le nom : « Confirmed » (.is-confirmed) ou « Expected » (.is-expected). C'est le seul
         # statut de confirmation de RotoWire : les unités de jeu restent des projections.
         team_data["goalie_confirmed"] = goalie_item.select_one('.is-confirmed') is not None
@@ -151,7 +160,7 @@ def _parse_rotowire_team(ul_element) -> dict:
         elif 'lineup__player' in li.get('class', []):
             a_tag = li.select_one('a')
             if not a_tag: continue
-            name = a_tag.text.strip()
+            name = _link_name(a_tag)
             
             if current_title == "INJURIES":
                 team_data["injuries"].add(name)

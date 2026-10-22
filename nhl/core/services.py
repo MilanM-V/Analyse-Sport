@@ -589,10 +589,11 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
     target_time_eod = dt.time(hour=5, minute=0, tzinfo=dt.timezone.utc)
     app.job_queue.run_daily(job_end_of_day, time=target_time_eod)
 
-    # Contrôle de drift quotidien (6:00 UTC) et retrain hebdomadaire (lundi 6:30 UTC)
+    # Contrôle de drift quotidien (6:00 UTC) et retrain hebdomadaire (lundi 6:30 UTC).
+    # python-telegram-bot ≥ 20 : 0 = dimanche, 1 = lundi (days=(0,) lançait le retrain le dimanche).
     app.job_queue.run_daily(job_drift_check, time=dt.time(hour=6, minute=0, tzinfo=dt.timezone.utc))
     app.job_queue.run_daily(job_weekly_retrain, time=dt.time(hour=6, minute=30, tzinfo=dt.timezone.utc),
-                            days=(0,))
+                            days=(1,))
 
     # Backup Telegram at 5:15 UTC
     async def job_run_backup(context: ContextTypes.DEFAULT_TYPE) -> None:

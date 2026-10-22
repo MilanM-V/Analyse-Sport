@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 # Ajout du dossier racine au sys.path pour permettre l'exécution standalone
@@ -9,12 +10,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from nhl.core.database import get_connection
 from nhl.core.services import safe_get
 from shared.portfolio import Portfolio
-from shared.utils import match_player_name  # Source unique
+from shared.utils import match_player_name, paris_now  # Source unique
 
 logger = logging.getLogger("NHL.Updater")
 portfolio = Portfolio()
 
 FINAL_STATES = ("OFF", "FINAL", "FINAL_OT", "FINAL_SO")
+# Joueurs évalués (table players) : soirées rattrapées, même sans pick (avant le 2026-10-19, seules
+# les soirées avec un pick en attente étaient lues : 0 joueur résolu les soirs sans pick)
+PLAYERS_RESOLVE_DAYS = 30
 # (table, colonne résultat, stat du boxscore, marché du portefeuille)
 PICK_TABLES = (("picks", "but", "goals", "BUTEUR"),
                ("picks_assists", "assist", "assists", "PASSEUR"),
@@ -72,9 +76,11 @@ def update_pending_picks() -> int:
     - Match terminé et joueur absent (scratch, blessure à l'échauffement) : pick `void`
       (mise rendue au portefeuille, exclu du ROI). Sans playerId, le pick n'est annulé que
       si aucun nom ne correspond, et un warning est loggé.
+    - Joueurs évalués (table players) : toutes les soirées des PLAYERS_RESOLVE_DAYS derniers jours,
+      même sans pick (suivi de la qualité du moteur, nhl/scripts/paper_quality.py).
 
     Returns:
-        Nombre de picks résolus (void compris).
+        Nombre de picks résolus (void compris), hors joueurs évalués.
     """
     conn = get_connection()
     try:
@@ -83,6 +89,10 @@ def update_pending_picks() -> int:
             rows = conn.execute(f"SELECT DISTINCT date FROM {table} WHERE ({col} IS NULL OR {col} = '') "
                                 f"AND (statut IS NULL OR statut != 'void')").fetchall()
             dates.update(r[0] for r in rows)
+        since = (paris_now() - timedelta(days=PLAYERS_RESOLVE_DAYS)).strftime("%Y-%m-%d")
+        rows = conn.execute("SELECT DISTINCT date FROM players WHERE (but IS NULL OR but = '') "
+                            "AND statut IS NULL AND date >= ?", (since,)).fetchall()
+        dates.update(r[0] for r in rows)
     finally:
         conn.close()
     if not dates:
@@ -137,17 +147,27 @@ def _resolve_date(date_str: str, box: dict) -> int:
                     portfolio.resolve_bet_by_pick_id(pick_id, "nhl", won=(val == 1), market=market)
                 resolved += 1
 
-        # Table unifiée des joueurs évalués (stats brutes, pas de void)
-        c.execute("SELECT id, joueur, equipe FROM players WHERE date = ? AND (but IS NULL OR but = '')", (date_str,))
-        for p_id, joueur, equipe in c.fetchall():
-            if equipe in box:
-                stats, _ = find_player_stats(box[equipe], joueur, None)
-                if stats is not None:
-                    c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?",
-                              (stats["goals"], stats["assists"], stats["points"], p_id))
+        # Table unifiée des joueurs évalués (stats brutes, pas de void) ; par playerId s'il est connu.
+        # Feuille de match terminée sans le joueur : statut 'absent' (playerId) ou 'introuvable' (nom),
+        # pour ne plus redemander la soirée ; match pas encore terminé : retenté au prochain passage.
+        c.execute("SELECT id, joueur, equipe, player_id FROM players WHERE date = ? AND (but IS NULL OR but = '') "
+                  "AND statut IS NULL", (date_str,))
+        n_players = 0
+        for p_id, joueur, equipe, player_id in c.fetchall():
+            if equipe not in box:
+                continue
+            stats, sure = find_player_stats(box[equipe], joueur, player_id)
+            if stats is None:
+                c.execute("UPDATE players SET statut = ? WHERE id = ?", ("absent" if sure else "introuvable", p_id))
+            else:
+                c.execute("UPDATE players SET but = ?, assist = ?, point = ? WHERE id = ?",
+                          (stats["goals"], stats["assists"], stats["points"], p_id))
+            n_players += 1
         conn.commit()
     finally:
         conn.close()
+    if n_players:
+        logger.info(f"[Auto-ROI] {date_str} : {n_players} joueur(s) évalué(s) résolu(s).")
     return resolved
 
 

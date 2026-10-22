@@ -17,7 +17,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from nhl.core.features import FEATURES, build_features, load_all_gamelogs, load_season_priors
+from nhl.core.features import build_features, load_all_gamelogs, load_season_priors, load_xg_table
 from nhl.data.gamelog_schema import GAMELOG_COLUMNS
 
 logger = logging.getLogger("NHL.Inference")
@@ -27,6 +27,11 @@ MODELS_DIR = os.path.join(NHL_DIR, "models")
 # Les features « carrière » (car_*, sh_pct_shrunk) cumulent depuis le début des logs : le
 # modèle a été entraîné avec un historique depuis 2008. Servir avec moins = train/serve skew.
 HISTORY_START_MAX = pd.Timestamp("2009-10-01")
+
+
+# Couverture xG minimale des saisons terminées (matchs-joueurs des logs présents dans la table xG)
+XG_MIN_COVERAGE = 0.95
+XG_MAX_LAG_DAYS = 2  # au-delà, alerte : le miroir MoneyPuck se met à jour une fois par jour
 
 
 class InsufficientHistoryError(RuntimeError):
@@ -46,30 +51,115 @@ def check_history(logs: pd.DataFrame) -> None:
             "nhl/data/gamelogs/mp_gamelogs.parquet est-il présent ? (python -m nhl.data.gamelog_moneypuck)")
 
 
+def check_xg_history(xg: pd.DataFrame, logs: pd.DataFrame, season: int) -> None:
+    """Lève InsufficientHistoryError si la table xG ne couvre pas les saisons terminées des logs.
+
+    Le moteur v2 a été entraîné avec l'xG de toutes les saisons depuis 2008 : le servir sans
+    (fichier absent, rattrapage pas encore fait) fausserait ses features xG.
+
+    Args:
+        xg: table xG chargée (load_xg_table).
+        logs: logs de match chargés.
+        season: saison en cours (seules les saisons antérieures sont contrôlées).
+    """
+    done = logs.loc[(logs["season"] >= 2009) & (logs["season"] < season), ["playerId", "gameId", "season"]]
+    if done.empty:
+        return
+    have = done.merge(xg[["playerId", "gameId"]].assign(_x=1), on=["playerId", "gameId"], how="left")["_x"].notna()
+    cov = have.groupby(done["season"].to_numpy()).mean()
+    bad = cov[cov < XG_MIN_COVERAGE]
+    if len(bad):
+        raise InsufficientHistoryError(
+            "xG incomplet pour les saisons " + ", ".join(f"{int(s)} ({c:.0%})" for s, c in bad.items())
+            + " : nhl/data/gamelogs/mp_xg.parquet (versionné) et xg_<saison>.parquet sont-ils présents ? "
+            "(python -m nhl.data.xg_nhlapi --season <saison>)")
+
+
+def xg_lag_days(xg: pd.DataFrame, logs: pd.DataFrame, season: int) -> int:
+    """Jours entre le dernier match des logs de la saison et le dernier match qui a son xG."""
+    cur = logs.loc[logs["season"] == season, ["gameId", "gameDate"]].drop_duplicates("gameId")
+    if cur.empty:
+        return 0
+    last = pd.to_datetime(cur["gameDate"]).max()
+    with_xg = cur[cur["gameId"].isin(set(xg["gameId"]))]
+    ref = pd.to_datetime(with_xg["gameDate"]).max() if len(with_xg) else pd.to_datetime(cur["gameDate"]).min() - pd.Timedelta(days=1)
+    return int((last - ref).days)
+
+
+def _xg_files_stamp() -> Tuple:
+    """Empreinte (nom, taille, date) des fichiers xG : la table n'est rechargée que s'ils ont changé."""
+    d = os.path.join(NHL_DIR, "data", "gamelogs")
+    if not os.path.isdir(d):
+        return ()
+    return tuple(sorted((f, os.path.getsize(os.path.join(d, f)), os.path.getmtime(os.path.join(d, f)))
+                        for f in os.listdir(d) if f.endswith(".parquet") and (f == "mp_xg.parquet" or f.startswith("xg_"))))
+
+
+def serving_history(logs: pd.DataFrame, season: int, pids: Iterable[int], today: pd.Timestamp) -> pd.DataFrame:
+    """Logs passés nécessaires aux features des matchs à venir.
+
+    - Tous les joueurs des saisons `season - 1` et `season` : les fenêtres d'équipe (team_gf_l10,
+      opp_ga_l10, opp_sa_l10...) remontent sur la saison précédente pendant les ~10 premiers
+      matchs. Avec les seuls joueurs du soir, ces matchs étaient incomplets, d'où un écart
+      entre entraînement et service en début de saison (corrigé le 2026-10-08).
+    - L'historique complet des joueurs du soir (features carrière, moyennes exponentielles).
+
+    Args:
+        logs: tous les logs de match chargés.
+        season: saison des matchs à venir (année de début).
+        pids: playerId des lignes à venir.
+        today: date de la session ; seuls les matchs antérieurs sont gardés.
+    """
+    keep = (logs["season"] >= season - 1) | logs["playerId"].isin(set(pids))
+    return logs[keep & (logs["gameDate"] < today)]
+
+
 def norm_name(name: str) -> str:
     """Nom normalisé (sans accents, ponctuation, casse)."""
     s = "".join(c for c in unicodedata.normalize("NFD", str(name)) if unicodedata.category(c) != "Mn")
     return " ".join(re.sub(r"[^a-z ]", " ", s.lower()).split())
 
 
-def model_path(market: str) -> Optional[str]:
-    """Chemin du modèle à servir : retrain du VPS (models/live/) s'il existe, sinon models/."""
+def load_model_bundle(market: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Modèle à servir : retrain du VPS (models/live/) s'il est de la version de features courante, sinon models/.
+
+    Un modèle live d'une ancienne version de features (retrain d'avant un changement de features)
+    était servi quand même et le bot n'émettait plus aucun pick. Il est désormais ignoré. Si aucun
+    modèle n'est compatible, le premier trouvé est renvoyé : bot_logic signale alors l'incompatibilité.
+
+    Returns:
+        (chemin, bundle joblib), ou (None, None) si aucun modèle n'existe.
+    """
+    from nhl.core.features import FEATURES_VERSION
+    fallback: Tuple[Optional[str], Optional[Dict[str, Any]]] = (None, None)
     for d in (os.path.join(MODELS_DIR, "live"), MODELS_DIR):
         path = os.path.join(d, f"ml_model_{market}.pkl")
-        if os.path.exists(path):
-            return path
-    return None
+        if not os.path.exists(path):
+            continue
+        bundle = joblib.load(path)
+        if bundle.get("features_version") == FEATURES_VERSION:
+            return path, bundle
+        logger.warning(f"Modèle {market} ignoré : {path} (features_version={bundle.get('features_version')} "
+                       f"≠ {FEATURES_VERSION})")
+        if fallback[0] is None:
+            fallback = (path, bundle)
+    return fallback
+
+
+def model_path(market: str) -> Optional[str]:
+    """Chemin du modèle servi pour `market` (cf. load_model_bundle)."""
+    return load_model_bundle(market)[0]
 
 
 def load_models() -> Dict[str, Dict[str, Any]]:
     """Charge ml_model_{but,ast}.pkl (dicts joblib) une seule fois."""
     models = {}
     for m in ("but", "ast"):
-        path = model_path(m)
-        if path:
-            models[m] = joblib.load(path)
-            logger.info(f"Modèle {m} chargé (algo={models[m].get('algo')}, "
-                        f"features_version={models[m].get('features_version')}, cutoff={models[m].get('train_cutoff')})")
+        path, bundle = load_model_bundle(m)
+        if bundle is not None:
+            models[m] = bundle
+            logger.info(f"Modèle {m} chargé depuis {path} (algo={bundle.get('algo')}, "
+                        f"features_version={bundle.get('features_version')}, cutoff={bundle.get('train_cutoff')})")
         else:
             logger.error(f"Modèle introuvable pour le marché {m}")
     return models
@@ -82,6 +172,9 @@ class FeatureEngine:
         self.logs: Optional[pd.DataFrame] = None
         self.priors: Optional[Dict[str, pd.DataFrame]] = None
         self.models: Dict[str, Dict[str, Any]] = {}
+        self.xg: Optional[pd.DataFrame] = None
+        self.xg_lag: int = 0
+        self._xg_stamp: Tuple = ()
         self._name_idx: Dict[str, List[Tuple[int, str, pd.Timestamp, str]]] = {}
         self._season_gp: Dict[Tuple[int, int], Dict[int, int]] = {}
 
@@ -93,15 +186,42 @@ class FeatureEngine:
         if collect:
             from nhl.data.gamelog_nhlapi import ensure_recent_seasons
             ensure_recent_seasons()
+            try:  # xG des saisons récentes : quelques matchs (le rattrapage complet est fait en fin de journée)
+                from nhl.data.xg_nhlapi import ensure_xg_recent
+                ensure_xg_recent(backfill=False)
+            except Exception as e:
+                logger.error(f"[xG] mise à jour impossible : {e}", exc_info=True)
         logs = load_all_gamelogs()
         check_history(logs)  # aucune inférence sur un historique tronqué
+        from nhl.data.gamelog_nhlapi import current_season
+        xg = load_xg_table()
+        check_xg_history(xg, logs, current_season())  # ni sur un xG incomplet (moteur v2)
         self.logs = logs
+        self._set_xg(xg)
         self.priors = load_season_priors()
         self.models = load_models()
         self._season_gp = {}
         self._build_name_index()
         logger.info(f"FeatureEngine prêt : {len(self.logs):,} lignes de logs, "
                     f"dernière date {self.logs['gameDate'].max().date()}.")
+
+    def _set_xg(self, xg: pd.DataFrame) -> None:
+        from nhl.data.gamelog_nhlapi import current_season
+        self.xg = xg
+        self._xg_stamp = _xg_files_stamp()
+        self.xg_lag = xg_lag_days(xg, self.logs, current_season()) if self.logs is not None else 0
+        if self.xg_lag > XG_MAX_LAG_DAYS:
+            logger.error(f"[xG] {self.xg_lag} jours de retard sur les logs de match (miroir MoneyPuck à jour ?)")
+
+    def refresh_xg(self) -> None:
+        """Avant chaque vague : derniers matchs xG (le miroir se met à jour vers 17h20 UTC), table rechargée si elle a changé."""
+        try:
+            from nhl.data.xg_nhlapi import ensure_xg_recent
+            ensure_xg_recent(backfill=False)
+        except Exception as e:  # l'xG déjà chargé reste utilisable
+            logger.error(f"[xG] mise à jour impossible : {e}", exc_info=True)
+        if self.logs is not None and _xg_files_stamp() != self._xg_stamp:
+            self._set_xg(load_xg_table())
 
     def season_games(self, name: str, team: str, today: Optional[str] = None) -> int:
         """Matchs joués CETTE saison avant `today` (depuis les logs, sans repli sur la saison précédente).
@@ -217,11 +337,9 @@ class FeatureEngine:
         up = self._upcoming_rows(games, lineup, today)
         if up.empty:
             return {}
-        pids = set(up["playerId"])
         season = int(up["season"].iloc[0])
-        hist = self.logs[(self.logs["season"] == season) | (self.logs["playerId"].isin(pids))]
-        hist = hist[hist["gameDate"] < pd.Timestamp(today)]
-        feats = build_features(pd.concat([hist, up], ignore_index=True), self.priors)
+        hist = serving_history(self.logs, season, up["playerId"], pd.Timestamp(today))
+        feats = build_features(pd.concat([hist, up], ignore_index=True), self.priors, self.xg)
         feats = feats[feats["target_but"].isna() & feats["gameId"].isin(up["gameId"])]
         by_pid = feats.set_index("playerId")
         out: Dict[str, Dict[str, Any]] = {}

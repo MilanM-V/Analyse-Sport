@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
-from shared.utils import paris_now
+from shared.utils import match_player_name, normalize_name, paris_now
 import subprocess
 import sys
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -58,6 +58,35 @@ def plan_wave_sends(waves: List[List[str]], is_complete: Callable[[List[str]], b
         elif complete:
             preview_ids += [m for m in wave if m not in previewed]
     return preview_ids, confirmed_ids
+
+
+def match_lineup_name(player: str, team_abbr: str, known_players: List[str],
+                      form_data: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    """Nom d'un joueur de la compo RotoWire -> nom connu du bot (clé de form_data, v5_data…).
+
+    1. Nom identique, accents retirés.
+    2. Repli : l'unique joueur de form_data de la même équipe qui a la même initiale et le même nom de
+       famille (shared.utils.match_player_name), pour les variantes de prénom (« Thomas Novak » sur
+       RotoWire, « Tommy Novak » à l'API NHL). Plusieurs candidats : aucun n'est retenu.
+
+    Args:
+        player: nom lu sur RotoWire.
+        team_abbr: abréviation de l'équipe du joueur dans la compo.
+        known_players: noms connus du bot (DataStore.known_players).
+        form_data: stats récentes par joueur (DataStore.form_data), avec la colonne 'Team'.
+
+    Returns:
+        Le nom connu, ou None si le joueur n'est pas reconnu.
+    """
+    if player in known_players:
+        return player
+    n_player = normalize_name(player)
+    for known_p in known_players:
+        if normalize_name(known_p) == n_player:
+            return known_p
+    cands = [k for k, f in form_data.items()
+             if loaders.clean_team_name(str(f.get("Team", ""))) == team_abbr and match_player_name(k, player)]
+    return cands[0] if len(cands) == 1 else None
 
 
 class NhlBot(BaseSportBot):
@@ -399,7 +428,7 @@ class NhlBot(BaseSportBot):
         """
         from nhl.core.market_filter import MIN_GP, evaluate_early_season
         from nhl.core.features import FEATURES_VERSION
-        from nhl.core.betting import select_bets
+        from nhl.core.betting import BetParams, blend_probability, select_bets
         from nhl.core.formatter import format_telegram_v18
         from nhl.core.logger_csv import log_picks_to_db, log_picks_to_csv
 
@@ -441,27 +470,17 @@ class NhlBot(BaseSportBot):
                     team_for_key = home if "dom" in key else away
                     team_abbr = loaders.clean_team_name(team_for_key)
                     for player in c[key]:
-                        matched_player = player
-                        if player in ds.known_players:
-                            compos_brutes.append(player)
-                        else:
-                            from shared.utils import normalize_name
-                            n_player = normalize_name(player)
-                            matched = False
-                            for known_p in ds.known_players:
-                                if normalize_name(known_p) == n_player:
-                                    compos_brutes.append(known_p)
-                                    matched_player = known_p
-                                    matched = True
-                                    break
-                            if not matched:
-                                compos_brutes.append(player)
+                        matched_player = match_lineup_name(player, team_abbr, ds.known_players, ds.form_data) or player
+                        compos_brutes.append(matched_player)
                         rotowire_teams[matched_player] = team_abbr
 
         compos_filtrees = [p for p in compos_brutes if p in ds.form_data]
-        
+
         # Diagnostic : combien de joueurs passent chaque étape du filtre
         logger.info(f"  Joueurs compos bruts: {len(compos_brutes)} → filtrés (dans form_data): {len(compos_filtrees)}")
+        ecartes = sorted({p for p in compos_brutes if p not in ds.form_data})
+        if ecartes:
+            logger.warning(f"  Joueurs RotoWire écartés, absents de form_data ({len(ecartes)}) : {', '.join(ecartes)}")
         if len(compos_brutes) > 0 and len(compos_filtrees) == 0:
             logger.warning("  ⚠️ AUCUN joueur RotoWire reconnu dans form_data (last 10.csv). "
                            "Données potentiellement périmées ou début de saison.")
@@ -607,10 +626,15 @@ class NhlBot(BaseSportBot):
                 logger.error("ALERTE CRITIQUE : AUCUNE COTE TROUVÉE POUR AUCUN JOUEUR DE LA VAGUE !")
                 self.telegram.send_message(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
 
-        # Mise à jour des cotes dans all_evaluated_players pour logger_csv
+        # Mise à jour des cotes dans all_evaluated_players pour logger_csv. Le no-vig Pinnacle de
+        # chaque marché est journalisé pour tous les joueurs évalués : c'est la référence du suivi
+        # de la qualité du modèle en paper trading (log-loss contre Pinnacle).
         for p in all_evaluated_players:
-            odds_but = odds_map.get(p["Joueur"], {}).get("BUTS", {})
-            if isinstance(odds_but, dict): p["Cote"] = odds_but.get("price")
+            for market, odds_key in (("but", "BUTS"), ("ast", "ASSISTS")):
+                od = odds_map.get(p["Joueur"], {}).get(odds_key, {})
+                od = od if isinstance(od, dict) else {}
+                p[f"PNovig_{market}"] = od.get("p_novig")
+                p["Cote" if market == "but" else "CoteAst"] = od.get("price")
 
         # Passe 3 : Inférence ML (chaîne de features unique, cf. nhl/core/features.py)
         games = []
@@ -619,6 +643,16 @@ class NhlBot(BaseSportBot):
             games.append({"gameId": int(mi["id"]), "home": loaders.clean_team_name(mi["home"]),
                           "away": loaders.clean_team_name(mi["away"])})
         lineup = {p["Joueur"]: p["Equipe"] for p in candidates_but + candidates_ast}
+        if ml_models:
+            # xG des derniers matchs (moteur v2) : mise à jour légère avant chaque vague
+            from nhl.core.inference import XG_MAX_LAG_DAYS
+            self.engine.refresh_xg()
+            day = self.get_nhl_session_date()
+            if self.engine.xg_lag > XG_MAX_LAG_DAYS and getattr(self, "_xg_alert_day", None) != day:
+                self.telegram.send_message(
+                    f"⚠️ <b>xG NHL en retard de {self.engine.xg_lag} jours</b>\nLes derniers matchs n'ont pas "
+                    "encore leur xG (miroir MoneyPuck ou API NHL) : les features xG utilisent les matchs précédents.")
+                self._xg_alert_day = day
         preds = self.engine.predict(games, lineup, self.get_nhl_session_date()) if ml_models else {}
 
         # Passe 4 : stratégie de mise P2 (nhl/core/betting.py) — mélange modèle / Pinnacle
@@ -628,6 +662,7 @@ class NhlBot(BaseSportBot):
             game_of_team[g["home"]] = g["gameId"]
             game_of_team[g["away"]] = g["gameId"]
         cands = []
+        blend_w = BetParams.from_config().blend_w
         for market, candidates, odds_key, score_key in (
             ("but", candidates_but, "BUTS", "Score_But"),
             ("ast", candidates_ast, "ASSISTS", "Score_Assist"),
@@ -652,6 +687,8 @@ class NhlBot(BaseSportBot):
                     if ep["Joueur"] == p["Joueur"]:
                         ep[score_key] = p["PModel"]
                         ep.setdefault("Features", {})[market] = p["Features"]
+                        ep["PlayerId"] = p["PlayerId"]
+                        ep[f"PFinal_{market}"] = blend_probability(p["PModel"], p["PNovig"], blend_w[market])
                 cands.append({"market": market, "p_model": p["PModel"], "p_novig": p["PNovig"],
                               "cote": p["Cote"], "game_id": game_of_team.get(p["Equipe"]),
                               "early": p.get("Phase") == "early", "_pick": p})
@@ -695,6 +732,7 @@ class NhlBot(BaseSportBot):
                     if p.get("Ref"):
                         self.telegram.send_pick_card(p, market)
             log_picks_to_csv(final_picks_but, final_picks_ast, [], all_evaluated_players, wave_label, session_date, self.log_path, self.players_log_path)
+            self._log_dailyfaceoff(wave_ids)
 
     def _log_market_data(self, loop: asyncio.AbstractEventLoop, matches: List[Tuple[str, str]],
                          wave_ids: List[str]) -> None:
@@ -712,6 +750,28 @@ class NhlBot(BaseSportBot):
         except Exception as e:  # la journalisation ne doit jamais empêcher l'envoi des picks
             logger.error(f"[Contexte] Journalisation du marché impossible : {e}", exc_info=True)
 
+    def _log_dailyfaceoff(self, wave_ids: List[str]) -> None:
+        """Lignes du jour Daily Faceoff des équipes de la vague (futures features), après l'envoi des picks.
+
+        Aucune ligne écrite pour la vague : alerte Telegram, une fois par jour (le journal du bot de test
+        était resté vide sans aucun signal du 09 au 19/10/2026).
+        """
+        if not getattr(getattr(cfg, "journal", None), "dailyfaceoff", False):
+            return
+        n = 0
+        try:
+            from nhl.core.dailyfaceoff import log_team_lines
+            teams = {loaders.clean_team_name(self.compos_en_memoire[mid]["match_info"][side])
+                     for mid in wave_ids for side in ("home", "away")}
+            n = log_team_lines(teams, self.get_nhl_session_date())
+        except Exception as e:  # la journalisation ne doit jamais casser la vague
+            logger.error(f"[DFO] Journalisation Daily Faceoff impossible : {e}", exc_info=True)
+        day = self.get_nhl_session_date()
+        if n == 0 and getattr(self, "_dfo_alert_day", None) != day:
+            self.telegram.send_message("⚠️ <b>Daily Faceoff : aucune ligne journalisée</b>\nPages illisibles pour "
+                                       "cette vague (détail : lignes [DFO] de nhl/bot.log). Sans effet sur les picks.")
+            self._dfo_alert_day = day
+
     def end_of_day_cleanup(self) -> None:
         """Resolves pending picks and cleans up session data."""
         try:
@@ -725,6 +785,12 @@ class NhlBot(BaseSportBot):
             dashboard_exporter.git_commit_and_push()
         except Exception as e:
             logger.error(f"Erreur auto-résolution ou export : {e}")
+
+        try:  # xG des saisons récentes : rattrapage complet, hors des heures de match
+            from nhl.data.xg_nhlapi import ensure_xg_recent
+            ensure_xg_recent(backfill=True)
+        except Exception as e:
+            logger.error(f"[xG] rattrapage de fin de journée impossible : {e}", exc_info=True)
 
         if self.matchs_traites:
 

@@ -40,14 +40,12 @@ GRID_CSV = os.path.join(REPORT_DIR, "config_search.csv")
 SCENARIOS_JSON = os.path.join(REPORT_DIR, "config_scenarios.json")
 ENGINES_CSV = os.path.join(REPORT_DIR, "config_engines.csv")
 NIGHTS_PER_SEASON = 180
+# Moteurs proposés (2026-10-08) : les deux que le bot sait servir, rejoués par le harnais trié par
+# date (défaut H17 corrigé). Les anciens moteurs de recherche (p1b_*, x_*, q_p2_refit, avg_ens_v2)
+# avaient été calculés avec le harnais trié par joueur : retirés de la grille.
 ENGINES = {
-    "p1b_ens": "Ensemble LGBM + XGB + CatBoost (prod)",
-    "p1b_lgbm": "LightGBM seul",
-    "p1b_ens_monthly": "Ensemble, retrain mensuel",
-    "x_feat_lgbm": "LightGBM, features V2",
-    "x_tuned_lgbm": "LightGBM réglé (Optuna)",
-    "q_p2_refit": "Ensemble, arbres ré-entraînés à 100 %",
-    "avg_ens_v2": "Moyenne ensemble + LightGBM V2",
+    "v2": "Moteur v2 : arbres + calibration Platt + réseaux de neurones + xG (prod)",
+    "m0": "Moteur p1 : LGBM + XGB + CatBoost, isotonique (prod jusqu'au 2026-10-08)",
 }
 GRID = {
     "markets": [("but", "ast"), ("but",)],
@@ -60,6 +58,7 @@ GRID = {
 # grille (w_shift est relatif à ces valeurs, pas au TOML, pour que la grille ne bouge pas
 # quand la config de prod change).
 W_BASE = {"but": 0.50, "ast": 0.75}
+PROD_ENGINE = "v2"  # moteur servi par le bot (settings.toml [model] + features FEATURES)
 MIN_VAL_BETS = 150
 MIN_PROFIT_CI_LO = -10.0
 
@@ -89,7 +88,7 @@ class Config:
 def current_config() -> Config:
     """La config de prod (settings.toml) exprimée dans la grille."""
     b = BetParams.from_config()
-    return Config("p1b_ens", tuple(b.markets), b.ev_mid, round(b.blend_w["but"] - W_BASE["but"], 2),
+    return Config(PROD_ENGINE, tuple(b.markets), b.ev_mid, round(b.blend_w["but"] - W_BASE["but"], 2),
                   b.cote_max["but"], b.max_bets_per_game)
 
 
@@ -97,14 +96,8 @@ def current_config() -> Config:
 # Données
 # ─────────────────────────────────────────────────────────────────────────────
 def load_engine(name: str) -> pd.DataFrame:
-    """Prédictions d'un moteur avec éligibilité, prix réaliste et no-vig de prod."""
+    """Prédictions d'un moteur avec éligibilité, prix réaliste et no-vig de prod (période du simulateur)."""
     from nhl.scripts.export_simulator_data import load_preds
-    if name == "avg_ens_v2":
-        a, b = load_engine("p1b_ens"), load_engine("x_feat_lgbm")
-        b = b[["date", "playerId", "market", "p_model"]].rename(columns={"p_model": "p_b"})
-        out = a.merge(b, on=["date", "playerId", "market"], how="inner")
-        out["p_model"] = (out["p_model"] + out["p_b"]) / 2
-        return out.drop(columns="p_b")
     return load_preds(name)
 
 
@@ -203,9 +196,9 @@ SCENARIO_RULES = {
 # avec le moteur de prod (le scénario « Buteur seul » par règle utilise un moteur moyenné absent de la prod).
 EXTRA_SCENARIOS = {
     "equilibre_1pm": ("Équilibré, 1 pari / match", "variante manuelle : Équilibré limité à 1 pari par match",
-                      "p1b_ens|but+ast|ev0.08|w+0.15|cmax15|g1"),
+                      "v2|but+ast|ev0.08|w+0.15|cmax15|g1"),
     "buteur_prod": ("Buteur seul (moteur prod)", "variante manuelle : buteur seul avec le moteur de prod",
-                    "p1b_ens|but|ev0.08|w+0.15|cmax8|g1"),
+                    "v2|but|ev0.08|w+0.15|cmax8|g1"),
 }
 
 
@@ -262,7 +255,7 @@ def null_pvalue(b: pd.DataFrame, n_sims: int = 5000, seed: int = 0) -> Optional[
 def main() -> None:
     print("Chargement des moteurs...")
     frames = {e: load_engine(e) for e in ENGINES}
-    base = frames["p1b_ens"]
+    base = frames[PROD_ENGINE]
     priced = base[base["eligible"] & base["real_price"].notna()]
     counts = {per: {"nights": int(priced[m]["date"].nunique()), "games": int(priced[m]["gameId"].nunique())}
               for per, m in (("val", priced["date"] < VAL_END), ("ctl", priced["date"] >= VAL_END))}
