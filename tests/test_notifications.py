@@ -86,6 +86,28 @@ def test_match_lineup_name():
     assert match_lineup_name("Vinni Lettieri", "TOR", known, form) is None
 
 
+# ── Erreurs dans la conversation privée, jamais dans le canal (2026-10-22) ──
+def test_errors_go_to_admin_chat_never_to_channel(monkeypatch):
+    from nhl.core import services
+    monkeypatch.setenv("TELEGRAM_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "canal")
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID", "moi")
+    sent = []
+    monkeypatch.setattr(services, "safe_post", lambda url, json, timeout: sent.append(json["chat_id"]))
+    monkeypatch.setattr(services.requests, "post", lambda url, json, timeout: sent.append(json["chat_id"]))
+    t = services.TelegramNotifier()
+    t.send_message("picks")
+    t.send_admin("erreur")
+    t.send_crash_alert(RuntimeError("x"))
+    assert sent == ["canal", "moi", "moi"]
+    monkeypatch.delenv("TELEGRAM_ADMIN_ID")
+    sent.clear()
+    t = services.TelegramNotifier()
+    t.send_admin("erreur")
+    t.send_crash_alert(RuntimeError("x"))
+    assert sent == []  # sans conversation admin : journalisé, rien dans le canal
+
+
 # ── Répartition aperçu / confirmé ───────────────────────────────────────────
 def _plan(waves, complete=(), forced=(), confirmed=(), previewed=()):
     return plan_wave_sends(waves, is_complete=lambda w: w[0] in complete, is_forced=lambda w: w[0] in forced,

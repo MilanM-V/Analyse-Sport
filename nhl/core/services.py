@@ -21,11 +21,17 @@ PARIS_TZ = ZoneInfo("Europe/Paris")
 logger = logging.getLogger("NHL.Services")
 
 class TelegramNotifier:
-    """Service to handle Telegram notifications via python-telegram-bot."""
+    """Service to handle Telegram notifications via python-telegram-bot.
+
+    Canal (TELEGRAM_CHAT_ID) : picks et aperçus seulement. Conversation privée de l'admin
+    (TELEGRAM_ADMIN_ID) : fiches Pris / Skip, erreurs et messages techniques (send_admin,
+    send_crash_alert), comme le watchdog du VPS ; jamais de repli sur le canal.
+    """
     def __init__(self) -> None:
         """Initializes the TelegramNotifier with environment variables."""
         self.token = os.getenv("TELEGRAM_TOKEN")
         self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        self.admin_id = os.getenv("TELEGRAM_ADMIN_ID")
 
         if self.token == "TELEGRAM_BOT_TOKEN" or not self.token:
             logger.warning("[TelegramNotifier] Token non valide ou manquant.")
@@ -35,20 +41,12 @@ class TelegramNotifier:
 
         self.bot = Bot(token=self.token) if self.enabled else None
 
-    def send_message(self, message: str) -> None:
-        """
-        Sends an HTML formatted message synchronously using the underlying bot.
-
-        Args:
-            message: The HTML message string to send.
-        """
-        if not self.enabled:
-            return
-
+    def _post(self, chat_id: Optional[str], message: str) -> None:
+        """Envoie un message HTML à une conversation (erreurs d'envoi journalisées)."""
         try:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             payload = {
-                "chat_id": self.chat_id,
+                "chat_id": chat_id,
                 "text": message,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True
@@ -57,6 +55,30 @@ class TelegramNotifier:
             logger.info("Alerte Telegram envoyée avec succès !")
         except Exception as e:
             logger.error(f"Exception lors de l'envoi Telegram : {e}")
+
+    def send_message(self, message: str) -> None:
+        """
+        Sends an HTML formatted message to the channel (picks et aperçus).
+
+        Args:
+            message: The HTML message string to send.
+        """
+        if not self.enabled:
+            return
+        self._post(self.chat_id, message)
+
+    def send_admin(self, message: str) -> None:
+        """Erreur ou message technique : conversation privée de l'admin, jamais le canal.
+
+        Args:
+            message: message HTML.
+        """
+        if not self.enabled:
+            return
+        if not self.admin_id:
+            logger.error(f"TELEGRAM_ADMIN_ID manquant : message admin non envoyé (pas de repli sur le canal) : {message}")
+            return
+        self._post(self.admin_id, message)
 
     def send_pick_card(self, pick: Dict[str, Any], market: str) -> None:
         """Envoie à l'admin (chat privé) la fiche d'un pick avec les boutons Pris / Skip.
@@ -85,7 +107,7 @@ class TelegramNotifier:
 
     def send_crash_alert(self, error: Exception, context: str = "Bot Principal") -> None:
         """
-        Sends an emergency crash notification via Telegram.
+        Sends an emergency crash notification to the admin's private chat (jamais le canal).
         Uses raw requests (no retry decorator) to maximize delivery chance.
 
         Args:
@@ -93,6 +115,9 @@ class TelegramNotifier:
             context: Description of where the crash occurred.
         """
         if not self.enabled:
+            return
+        if not self.admin_id:
+            logger.error(f"TELEGRAM_ADMIN_ID manquant : alerte crash non envoyée ({context} : {error})")
             return
 
         import traceback
@@ -109,7 +134,7 @@ class TelegramNotifier:
         try:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             payload = {
-                "chat_id": self.chat_id,
+                "chat_id": self.admin_id,
                 "text": message,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True
@@ -564,9 +589,9 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
             nhl_bot.engine.models = __import__("nhl.core.inference", fromlist=["load_models"]).load_models()
             gate = [ln.strip() for ln in (res.stdout or "").splitlines() if "[gate]" in ln]
             if gate:
-                nhl_bot.telegram.send_message("🔁 <b>Retrain NHL</b>\n" + "\n".join(gate))
+                nhl_bot.telegram.send_admin("🔁 <b>Retrain NHL</b>\n" + "\n".join(gate))
         else:
-            nhl_bot.telegram.send_message(f"⚠️ <b>Retrain NHL en échec</b> (code {res.returncode})")
+            nhl_bot.telegram.send_admin(f"⚠️ <b>Retrain NHL en échec</b> (code {res.returncode})")
 
     async def job_drift_check(context: ContextTypes.DEFAULT_TYPE) -> None:
         """PSI des features servies (7 derniers jours) vs distribution d'entraînement."""
@@ -574,7 +599,7 @@ def create_telegram_app(nhl_bot: Any) -> Optional[Application]:
         loop = asyncio.get_running_loop()
         msg = await loop.run_in_executor(None, drift_report)
         if msg:
-            nhl_bot.telegram.send_message(msg)
+            nhl_bot.telegram.send_admin(msg)
 
     # Planificateur : chaque jour à 13:00 UTC + une fois au démarrage
     target_time_planner = dt.time(hour=13, minute=0, tzinfo=dt.timezone.utc)

@@ -90,11 +90,14 @@ def test_wave_without_any_line_alerts_once_a_day(monkeypatch):
     sent = []
     monkeypatch.setattr(cfg.journal, "dailyfaceoff", True)
     monkeypatch.setattr(dailyfaceoff, "log_team_lines", lambda teams, date: 0)  # toutes les pages illisibles
+    monkeypatch.setattr(dailyfaceoff, "FAILURES", {"MTL": "HTTP 403", "TOR": "HTTP 403"})
     bot = SimpleNamespace(compos_en_memoire={"g1": {"match_info": {"home": "MTL", "away": "TOR"}}},
-                          get_nhl_session_date=lambda: "2026-10-19", telegram=SimpleNamespace(send_message=sent.append))
+                          get_nhl_session_date=lambda: "2026-10-19", telegram=SimpleNamespace(send_admin=sent.append))
     NhlBot._log_dailyfaceoff(bot, ["g1"])
     NhlBot._log_dailyfaceoff(bot, ["g1"])  # 2e vague du même soir : pas de 2e alerte
     assert len(sent) == 1 and "Daily Faceoff" in sent[0]
+    assert "HTTP 403 (2 équipes) : le site refuse les requêtes du serveur" in sent[0]  # la cause, en clair
+    assert "picks ne sont pas touchés" in sent[0]
     monkeypatch.setattr(dailyfaceoff, "log_team_lines", lambda teams, date: 42)
     bot.get_nhl_session_date = lambda: "2026-10-20"
     NhlBot._log_dailyfaceoff(bot, ["g1"])  # lignes écrites : aucune alerte
@@ -106,4 +109,26 @@ def test_wave_without_any_line_alerts_once_a_day(monkeypatch):
     monkeypatch.setattr(dailyfaceoff, "log_team_lines", boom)
     bot.get_nhl_session_date = lambda: "2026-10-21"
     NhlBot._log_dailyfaceoff(bot, ["g1"])  # exception : la vague continue, alerte envoyée
-    assert len(sent) == 2
+    assert len(sent) == 2 and "erreur du bot (RuntimeError)" in sent[1]
+
+
+def test_fetch_tries_a_second_browser_and_keeps_the_reason(monkeypatch):
+    from nhl.core import dailyfaceoff
+    monkeypatch.setattr(dailyfaceoff, "FAILURES", {})
+    lines = {"source_name": "x", "source": "x", "updated_at": "x", "players": []}
+    tried = []
+
+    def page(url, imp, timeout):
+        tried.append(imp)
+        return (None, "HTTP 403") if imp == "chrome" else (lines, None)
+
+    monkeypatch.setattr(dailyfaceoff, "_read_page", page)
+    assert dailyfaceoff.fetch_team_lines("MTL") == lines  # 1re empreinte refusée, 2e acceptée
+    assert tried == ["chrome", "safari"] and dailyfaceoff.FAILURES == {}
+    monkeypatch.setattr(dailyfaceoff, "_read_page", lambda url, imp, timeout: (None, "HTTP 403"))
+    assert dailyfaceoff.fetch_team_lines("TOR") is None
+    assert dailyfaceoff.FAILURES == {"TOR": "HTTP 403"}
+    assert dailyfaceoff.failure_summary() == "HTTP 403 (1 équipe)"
+    # Lecteur injecté qui échoue sans raison : « illisible » ; remise à zéro à chaque vague
+    assert dailyfaceoff.log_team_lines(["BOS"], "2026-10-22", fetch=lambda t: None, pause_s=0) == 0
+    assert dailyfaceoff.FAILURES == {"BOS": "illisible"}

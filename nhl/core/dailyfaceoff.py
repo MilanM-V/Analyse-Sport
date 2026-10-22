@@ -14,8 +14,9 @@ import logging
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from nhl.config.constants import TEAM_ABBR_TO_FULL
 from nhl.core.database import get_connection
@@ -28,6 +29,12 @@ _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*
 # Slug = nom complet sans accents ni ponctuation, mots reliés par des tirets ; seule exception :
 # TEAM_ABBR_TO_FULL garde « Utah Hockey Club », Daily Faceoff écrit « Utah Mammoth ».
 _SLUG_OVERRIDES = {"UTA": "utah-mammoth"}
+# Empreintes de navigateur (curl_cffi) essayées dans l'ordre : la 2e ne sert que si la 1re est refusée.
+IMPERSONATE = ("chrome", "safari")
+# Raison du dernier échec de lecture par équipe, remise à zéro à chaque vague (log_team_lines) et
+# reprise dans l'alerte Telegram (failure_summary) : du 09 au 19/10/2026 le journal est resté vide
+# sans que la cause apparaisse ailleurs que dans bot.log.
+FAILURES: Dict[str, str] = {}
 COLUMNS = ["date", "snapshot_utc", "team", "source_name", "source", "updated_at", "player", "dfo_id",
            "position", "category", "grp", "injury", "gtd"]
 
@@ -53,27 +60,47 @@ def parse_combinations(next_data: Dict[str, Any]) -> Dict[str, Any]:
             "players": players}
 
 
-def fetch_team_lines(abbr: str, timeout: float = 20.0) -> Optional[Dict[str, Any]]:
-    """Lit la page Daily Faceoff d'une équipe. None (avertissement journalisé) si elle est illisible."""
+def _read_page(url: str, impersonate: str, timeout: float) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Une lecture de page : (lignes, None) ou (None, raison de l'échec en clair)."""
     from curl_cffi import requests as creq
-    url = URL.format(slug=team_slug(abbr))
     try:
-        r = creq.get(url, impersonate="chrome", timeout=timeout)
-    except Exception as e:  # réseau : on journalise et on continue la vague
-        logger.warning(f"[DFO] {abbr} : page illisible ({e})")
-        return None
+        r = creq.get(url, impersonate=impersonate, timeout=timeout)
+    except Exception as e:  # réseau : la raison remonte à l'appelant, la vague continue
+        return None, f"page illisible ({type(e).__name__})"
     if r.status_code != 200:
-        logger.warning(f"[DFO] {abbr} : HTTP {r.status_code} ({url})")
-        return None
+        return None, f"HTTP {r.status_code}"
     m = _NEXT_DATA.search(r.text)
     if not m:
-        logger.warning(f"[DFO] {abbr} : pas de __NEXT_DATA__ ({url})")
-        return None
+        return None, "page sans données (__NEXT_DATA__ absent)"
     try:
-        return parse_combinations(json.loads(m.group(1)))
+        return parse_combinations(json.loads(m.group(1))), None
     except (KeyError, TypeError, ValueError) as e:
-        logger.warning(f"[DFO] {abbr} : format inattendu ({e})")
-        return None
+        return None, f"format inattendu ({e})"
+
+
+def fetch_team_lines(abbr: str, timeout: float = 20.0) -> Optional[Dict[str, Any]]:
+    """Lit la page Daily Faceoff d'une équipe, avec chaque empreinte d'IMPERSONATE tant qu'elle est refusée.
+
+    Returns:
+        Les lignes, ou None : la raison est journalisée et gardée dans FAILURES[abbr].
+    """
+    url = URL.format(slug=team_slug(abbr))
+    reasons: List[str] = []
+    for imp in IMPERSONATE:
+        data, reason = _read_page(url, imp, timeout)
+        if data is not None:
+            return data
+        reasons.append(reason)
+        if reason.startswith("format inattendu"):
+            break  # la page est arrivée : une autre empreinte n'y changera rien
+    FAILURES[abbr] = reasons[0] if len(set(reasons)) == 1 else " puis ".join(reasons)
+    logger.warning(f"[DFO] {abbr} : {FAILURES[abbr]} ({url})")
+    return None
+
+
+def failure_summary() -> str:
+    """Raisons des échecs de la dernière vague, regroupées : « HTTP 403 (12 équipes) »."""
+    return " ; ".join(f"{r} ({n} équipe{'s' if n > 1 else ''})" for r, n in Counter(FAILURES.values()).most_common())
 
 
 def _ensure_table(conn) -> None:
@@ -99,14 +126,17 @@ def log_team_lines(teams: Iterable[str], session_date: str,
     """
     snap = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows: List[tuple] = []
+    FAILURES.clear()
     for i, team in enumerate(sorted(set(teams))):
         if team not in TEAM_ABBR_TO_FULL:
             logger.warning(f"[DFO] équipe inconnue « {team} » ignorée")
+            FAILURES[team] = "équipe inconnue"
             continue
         if i and pause_s:
             time.sleep(pause_s)
         data = fetch(team)
         if not data:
+            FAILURES.setdefault(team, "illisible")
             continue
         rows += [(session_date, snap, team, data["source_name"], data["source"], data["updated_at"], p["player"],
                   p["dfo_id"], p["position"], p["category"], p["grp"], p["injury"], p["gtd"])

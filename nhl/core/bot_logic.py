@@ -216,7 +216,7 @@ class NhlBot(BaseSportBot):
             except InsufficientHistoryError as e:
                 logger.critical(str(e))
                 if not self._history_alert_sent:
-                    self.telegram.send_message(f"🚨 <b>NHL : aucun pick</b>\n{e}")
+                    self.telegram.send_admin(f"🚨 <b>NHL : aucun pick</b>\n{e}")
                     self._history_alert_sent = True
                 return False
             except Exception as e:
@@ -624,7 +624,7 @@ class NhlBot(BaseSportBot):
             any_odds_found = any((data.get('BUTS') is not None) or (data.get('ASSISTS') is not None) for data in odds_map.values())
             if not any_odds_found:
                 logger.error("ALERTE CRITIQUE : AUCUNE COTE TROUVÉE POUR AUCUN JOUEUR DE LA VAGUE !")
-                self.telegram.send_message(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
+                self.telegram.send_admin(f"🚨 <b>ALERTE CRITIQUE SCRAPER</b> 🚨\nLe scraper n'a trouvé <b>aucune cote</b> pour la vague {wave_label}.")
 
         # Mise à jour des cotes dans all_evaluated_players pour logger_csv. Le no-vig Pinnacle de
         # chaque marché est journalisé pour tous les joueurs évalués : c'est la référence du suivi
@@ -649,7 +649,7 @@ class NhlBot(BaseSportBot):
             self.engine.refresh_xg()
             day = self.get_nhl_session_date()
             if self.engine.xg_lag > XG_MAX_LAG_DAYS and getattr(self, "_xg_alert_day", None) != day:
-                self.telegram.send_message(
+                self.telegram.send_admin(
                     f"⚠️ <b>xG NHL en retard de {self.engine.xg_lag} jours</b>\nLes derniers matchs n'ont pas "
                     "encore leur xG (miroir MoneyPuck ou API NHL) : les features xG utilisent les matchs précédents.")
                 self._xg_alert_day = day
@@ -758,18 +758,26 @@ class NhlBot(BaseSportBot):
         """
         if not getattr(getattr(cfg, "journal", None), "dailyfaceoff", False):
             return
-        n = 0
+        n, cause = 0, ""
         try:
-            from nhl.core.dailyfaceoff import log_team_lines
+            from nhl.core import dailyfaceoff
             teams = {loaders.clean_team_name(self.compos_en_memoire[mid]["match_info"][side])
                      for mid in wave_ids for side in ("home", "away")}
-            n = log_team_lines(teams, self.get_nhl_session_date())
+            n = dailyfaceoff.log_team_lines(teams, self.get_nhl_session_date())
+            cause = dailyfaceoff.failure_summary()
         except Exception as e:  # la journalisation ne doit jamais casser la vague
             logger.error(f"[DFO] Journalisation Daily Faceoff impossible : {e}", exc_info=True)
+            cause = f"erreur du bot ({type(e).__name__})"
         day = self.get_nhl_session_date()
         if n == 0 and getattr(self, "_dfo_alert_day", None) != day:
-            self.telegram.send_message("⚠️ <b>Daily Faceoff : aucune ligne journalisée</b>\nPages illisibles pour "
-                                       "cette vague (détail : lignes [DFO] de nhl/bot.log). Sans effet sur les picks.")
+            import html
+            refus = any(f"HTTP {c}" in cause for c in (401, 403, 429, 503))
+            self.telegram.send_admin(
+                "⚠️ <b>Daily Faceoff illisible depuis le serveur</b>\n"
+                f"Cause : {html.escape(cause or 'inconnue')}"
+                + (" : le site refuse les requêtes du serveur." if refus else ".")
+                + "\nCe journal (lignes et unités PP du soir) ne sert qu'à de futurs tests : les picks ne sont "
+                  "pas touchés. Au plus une alerte par soir.")
             self._dfo_alert_day = day
 
     def end_of_day_cleanup(self) -> None:
